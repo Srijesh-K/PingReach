@@ -1,0 +1,546 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Primitives & Hardened Helpers
+    // -------------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidHandleId(handle) {
+      return handle is string && handle.size() >= 3 && handle.size() <= 40 && handle.matches('^[a-z0-9_]+$');
+    }
+
+    function isValidSha256(hash) {
+      return hash is string && hash.size() == 64 && hash.matches('^[a-f0-9]{64}$');
+    }
+
+    function isValidHexColor(color) {
+      return color is string && color.size() == 7 && color.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Blueprint Validators (Anti-Update-Gap + Auth-First Guard)
+    // -------------------------------------------------------------------------
+    function isValidPublicProfile(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'uid', 'displayName', 'handle', 'about', 'avatarColor', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'displayName', 'handle', 'about', 'avatarColor', 'createdAt', 'updatedAt'
+        ]) &&
+        data.uid == request.auth.uid &&
+        isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+        isValidHandleId(data.handle) &&
+        data.about is string && data.about.size() <= 160 &&
+        isValidHexColor(data.avatarColor) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPrivateUserInfo(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'uid', 'email', 'emailHash', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'email', 'emailHash', 'createdAt', 'updatedAt'
+        ]) &&
+        data.uid == request.auth.uid &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        isValidSha256(data.emailHash) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDirectoryEntry(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'uid', 'handle', 'displayName', 'about', 'avatarColor', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'handle', 'displayName', 'about', 'avatarColor', 'createdAt', 'updatedAt'
+        ]) &&
+        data.uid == request.auth.uid &&
+        isValidId(data.uid) &&
+        isValidHandleId(data.handle) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+        data.about is string && data.about.size() <= 160 &&
+        isValidHexColor(data.avatarColor) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidContactEntry(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'ownerId', 'contactUid', 'contactHandle', 'contactName', 'nickname', 'avatarColor', 'about', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId', 'contactUid', 'contactHandle', 'contactName', 'nickname', 'avatarColor', 'about', 'createdAt', 'updatedAt'
+        ]) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.ownerId) &&
+        isValidId(data.contactUid) &&
+        isValidHandleId(data.contactHandle) &&
+        data.contactName is string && data.contactName.size() >= 1 && data.contactName.size() <= 60 &&
+        data.nickname is string && data.nickname.size() <= 60 &&
+        isValidHexColor(data.avatarColor) &&
+        data.about is string && data.about.size() <= 160 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDirectChat(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'chatId', 'userOneId', 'userTwoId', 'userOneName', 'userTwoName',
+          'userOneHandle', 'userTwoHandle', 'userOneColor', 'userTwoColor',
+          'createdBy', 'lastMessagePreview', 'lastMessageKind', 'lastSenderId',
+          'unreadForUserOne', 'unreadForUserTwo', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'chatId', 'userOneId', 'userTwoId', 'userOneName', 'userTwoName',
+          'userOneHandle', 'userTwoHandle', 'userOneColor', 'userTwoColor',
+          'createdBy', 'lastMessagePreview', 'lastMessageKind', 'lastSenderId',
+          'unreadForUserOne', 'unreadForUserTwo', 'createdAt', 'updatedAt'
+        ]) &&
+        (data.userOneId == request.auth.uid || data.userTwoId == request.auth.uid) &&
+        isValidId(data.chatId) && data.chatId.size() >= 5 &&
+        isValidId(data.userOneId) &&
+        isValidId(data.userTwoId) &&
+        data.userOneId != data.userTwoId &&
+        data.userOneName is string && data.userOneName.size() >= 1 && data.userOneName.size() <= 60 &&
+        data.userTwoName is string && data.userTwoName.size() >= 1 && data.userTwoName.size() <= 60 &&
+        isValidHandleId(data.userOneHandle) &&
+        isValidHandleId(data.userTwoHandle) &&
+        isValidHexColor(data.userOneColor) &&
+        isValidHexColor(data.userTwoColor) &&
+        isValidId(data.createdBy) &&
+        (data.createdBy == data.userOneId || data.createdBy == data.userTwoId) &&
+        data.lastMessagePreview is string && data.lastMessagePreview.size() <= 240 &&
+        data.lastMessageKind in ['none', 'text', 'data_record', 'code_snippet', 'file_packet'] &&
+        isValidId(data.lastSenderId) &&
+        (data.lastSenderId == data.userOneId || data.lastSenderId == data.userTwoId) &&
+        data.unreadForUserOne is int && data.unreadForUserOne >= 0 && data.unreadForUserOne <= 9999 &&
+        data.unreadForUserTwo is int && data.unreadForUserTwo >= 0 && data.unreadForUserTwo <= 9999 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDataPacket(packet) {
+      return packet is map &&
+        packet.keys().hasAll(['title', 'category']) &&
+        packet.keys().hasOnly([
+          'title', 'category',
+          'fieldOneLabel', 'fieldOneValue',
+          'fieldTwoLabel', 'fieldTwoValue',
+          'fieldThreeLabel', 'fieldThreeValue',
+          'codeLanguage', 'fileName', 'fileMimeType', 'payloadBody'
+        ]) &&
+        packet.title is string && packet.title.size() >= 1 && packet.title.size() <= 120 &&
+        packet.category is string && packet.category.size() >= 1 && packet.category.size() <= 40 &&
+        (!('fieldOneLabel' in packet) || (packet.fieldOneLabel is string && packet.fieldOneLabel.size() <= 60)) &&
+        (!('fieldOneValue' in packet) || (packet.fieldOneValue is string && packet.fieldOneValue.size() <= 500)) &&
+        (!('fieldTwoLabel' in packet) || (packet.fieldTwoLabel is string && packet.fieldTwoLabel.size() <= 60)) &&
+        (!('fieldTwoValue' in packet) || (packet.fieldTwoValue is string && packet.fieldTwoValue.size() <= 500)) &&
+        (!('fieldThreeLabel' in packet) || (packet.fieldThreeLabel is string && packet.fieldThreeLabel.size() <= 60)) &&
+        (!('fieldThreeValue' in packet) || (packet.fieldThreeValue is string && packet.fieldThreeValue.size() <= 500)) &&
+        (!('codeLanguage' in packet) || (packet.codeLanguage is string && packet.codeLanguage.size() <= 30)) &&
+        (!('fileName' in packet) || (packet.fileName is string && packet.fileName.size() <= 120)) &&
+        (!('fileMimeType' in packet) || (packet.fileMimeType is string && packet.fileMimeType.size() <= 80)) &&
+        (!('payloadBody' in packet) || (packet.payloadBody is string && packet.payloadBody.size() <= 3500));
+    }
+
+    function isValidChatMessage(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'chatId', 'senderId', 'recipientId', 'senderName',
+          'kind', 'text', 'deliveryStatus', 'starredBySender', 'starredByRecipient',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'chatId', 'senderId', 'recipientId', 'senderName',
+          'kind', 'text', 'deliveryStatus', 'starredBySender', 'starredByRecipient',
+          'replyToText', 'replyToSender', 'dataPacket',
+          'createdAt', 'updatedAt'
+        ]) &&
+        (data.senderId == request.auth.uid || data.recipientId == request.auth.uid) &&
+        isValidId(data.chatId) && data.chatId.size() >= 5 &&
+        isValidId(data.senderId) &&
+        isValidId(data.recipientId) &&
+        data.senderId != data.recipientId &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60 &&
+        data.kind in ['text', 'data_record', 'code_snippet', 'file_packet'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 4000 &&
+        data.deliveryStatus in ['sent', 'read'] &&
+        data.starredBySender is bool &&
+        data.starredByRecipient is bool &&
+        (!('replyToText' in data) || (data.replyToText is string && data.replyToText.size() >= 1 && data.replyToText.size() <= 240)) &&
+        (!('replyToSender' in data) || (data.replyToSender is string && data.replyToSender.size() >= 1 && data.replyToSender.size() <= 60)) &&
+        (!('dataPacket' in data) || isValidDataPacket(data.dataPacket)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Master Gate relational helpers
+    function isParentChatPair(chatId, actorUid, partnerUid) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      return chatDoc != null && (
+        (chatDoc.data.userOneId == actorUid && chatDoc.data.userTwoId == partnerUid) ||
+        (chatDoc.data.userTwoId == actorUid && chatDoc.data.userOneId == partnerUid)
+      );
+    }
+
+    function isParentChatMember(chatId, actorUid) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      return chatDoc != null && (
+        chatDoc.data.userOneId == actorUid ||
+        chatDoc.data.userTwoId == actorUid
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // 1. User Public Profile (Split Collection — Non-PII)
+    // -------------------------------------------------------------------------
+    match /users/{userId}/public/{docId} {
+      allow get: if isVerified() && isValidId(userId) && docId == 'profile';
+      allow list: if false;
+
+      allow create: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        docId == 'profile' &&
+        isValidPublicProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidPublicProfile(incoming()) &&
+        isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        docId == 'profile' &&
+        incoming().uid == existing().uid &&
+        incoming().handle == existing().handle &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'about', 'avatarColor', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. User Private Info (Split Collection — Strictly Owner-Only PII)
+    // -------------------------------------------------------------------------
+    match /users/{userId}/private/{docId} {
+      allow get: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        docId == 'info';
+      allow list: if false;
+
+      allow create: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        docId == 'info' &&
+        isValidPrivateUserInfo(incoming()) &&
+        incoming().uid == userId &&
+        incoming().email == request.auth.token.email &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        existsAfter(/databases/$(database)/documents/users/$(userId)/public/profile);
+
+      allow update: if isValidPrivateUserInfo(incoming()) &&
+        isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        docId == 'info' &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().emailHash == existing().emailHash &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt']);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Exact-Match Handle Lookup Index (Non-PII, No List Enumeration)
+    // -------------------------------------------------------------------------
+    match /handles/{handleId} {
+      allow get: if isVerified() && isValidHandleId(handleId);
+      allow list: if false;
+
+      allow create: if isVerified() &&
+        isValidHandleId(handleId) &&
+        isValidDirectoryEntry(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().handle == handleId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId;
+
+      allow update: if isValidDirectoryEntry(incoming()) &&
+        isVerified() &&
+        isValidHandleId(handleId) &&
+        existing().uid == request.auth.uid &&
+        incoming().uid == existing().uid &&
+        incoming().handle == existing().handle &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'about', 'avatarColor', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Exact-Match SHA-256 Email Hash Lookup Index (Non-PII, No List)
+    // -------------------------------------------------------------------------
+    match /lookupHashes/{hashId} {
+      allow get: if isVerified() && isValidSha256(hashId);
+      allow list: if false;
+
+      allow create: if isVerified() &&
+        isValidSha256(hashId) &&
+        isValidDirectoryEntry(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId;
+
+      allow update: if isValidDirectoryEntry(incoming()) &&
+        isVerified() &&
+        isValidSha256(hashId) &&
+        existing().uid == request.auth.uid &&
+        incoming().uid == existing().uid &&
+        incoming().handle == existing().handle &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'about', 'avatarColor', 'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Saved Contacts Subcollection
+    // -------------------------------------------------------------------------
+    match /users/{userId}/contacts/{contactUid} {
+      allow get: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidId(contactUid) &&
+        exists(/databases/$(database)/documents/users/$(userId)/public/profile);
+
+      allow list: if isVerified() &&
+        request.auth.uid == userId &&
+        resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidId(contactUid) &&
+        contactUid != userId &&
+        isValidContactEntry(incoming()) &&
+        incoming().ownerId == userId &&
+        incoming().contactUid == contactUid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(userId)/public/profile) &&
+        exists(/databases/$(database)/documents/users/$(contactUid)/public/profile);
+
+      allow update: if isValidContactEntry(incoming()) &&
+        isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidId(contactUid) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().contactUid == existing().contactUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'contactName', 'nickname', 'avatarColor', 'about', 'updatedAt'
+        ]) &&
+        exists(/databases/$(database)/documents/users/$(userId)/public/profile);
+
+      allow delete: if isVerified() &&
+        request.auth.uid == userId &&
+        isValidId(userId) &&
+        isValidId(contactUid) &&
+        exists(/databases/$(database)/documents/users/$(userId)/public/profile);
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Direct 1-to-1 Chats
+    // -------------------------------------------------------------------------
+    match /chats/{chatId} {
+      allow get: if isVerified() &&
+        isValidId(chatId) &&
+        (
+          resource == null
+            ? (chatId.split('__').size() == 2 && (chatId.split('__')[0] == request.auth.uid || chatId.split('__')[1] == request.auth.uid))
+            : (existing().userOneId == request.auth.uid || existing().userTwoId == request.auth.uid)
+        );
+
+      allow list: if isVerified() && (
+        resource.data.userOneId == request.auth.uid ||
+        resource.data.userTwoId == request.auth.uid
+      );
+
+      allow create: if isVerified() &&
+        isValidId(chatId) &&
+        isValidDirectChat(incoming()) &&
+        incoming().chatId == chatId &&
+        incoming().chatId == (incoming().userOneId + '__' + incoming().userTwoId) &&
+        incoming().userOneId < incoming().userTwoId &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().lastSenderId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(incoming().userOneId)/public/profile) &&
+        exists(/databases/$(database)/documents/users/$(incoming().userTwoId)/public/profile);
+
+      allow update: if isValidDirectChat(incoming()) &&
+        isVerified() &&
+        isValidId(chatId) &&
+        (existing().userOneId == request.auth.uid || existing().userTwoId == request.auth.uid) &&
+        incoming().chatId == existing().chatId &&
+        incoming().userOneId == existing().userOneId &&
+        incoming().userTwoId == existing().userTwoId &&
+        incoming().userOneHandle == existing().userOneHandle &&
+        incoming().userTwoHandle == existing().userTwoHandle &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Action 1: SendMessageSummaryUpdate
+          (
+            incoming().lastSenderId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'lastMessagePreview', 'lastMessageKind', 'lastSenderId',
+              'unreadForUserOne', 'unreadForUserTwo', 'updatedAt'
+            ])
+          ) ||
+          // Action 2: MarkChatReadByUserOne
+          (
+            request.auth.uid == existing().userOneId &&
+            incoming().unreadForUserOne == 0 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['unreadForUserOne', 'updatedAt'])
+          ) ||
+          // Action 3: MarkChatReadByUserTwo
+          (
+            request.auth.uid == existing().userTwoId &&
+            incoming().unreadForUserTwo == 0 &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['unreadForUserTwo', 'updatedAt'])
+          ) ||
+          // Action 4: SyncUserOneProfile
+          (
+            request.auth.uid == existing().userOneId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['userOneName', 'userOneColor', 'updatedAt'])
+          ) ||
+          // Action 5: SyncUserTwoProfile
+          (
+            request.auth.uid == existing().userTwoId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['userTwoName', 'userTwoColor', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+
+      // -----------------------------------------------------------------------
+      // 7. Chat Messages & Structured Data Packets Subcollection
+      // -----------------------------------------------------------------------
+      match /messages/{messageId} {
+        allow get: if isVerified() &&
+          isValidId(chatId) &&
+          isValidId(messageId) &&
+          (existing().senderId == request.auth.uid || existing().recipientId == request.auth.uid) &&
+          isParentChatMember(chatId, request.auth.uid);
+
+        allow list: if isVerified() && (
+          resource.data.senderId == request.auth.uid ||
+          resource.data.recipientId == request.auth.uid
+        );
+
+        allow create: if isVerified() &&
+          isValidId(chatId) &&
+          isValidId(messageId) &&
+          isValidChatMessage(incoming()) &&
+          incoming().chatId == chatId &&
+          incoming().senderId == request.auth.uid &&
+          incoming().deliveryStatus == 'sent' &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isParentChatPair(chatId, request.auth.uid, incoming().recipientId) &&
+          getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastSenderId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/chats/$(chatId)).data.updatedAt == request.time;
+
+        allow update: if isValidChatMessage(incoming()) &&
+          isVerified() &&
+          isValidId(chatId) &&
+          isValidId(messageId) &&
+          incoming().chatId == existing().chatId &&
+          incoming().senderId == existing().senderId &&
+          incoming().recipientId == existing().recipientId &&
+          incoming().senderName == existing().senderName &&
+          incoming().kind == existing().kind &&
+          incoming().text == existing().text &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time && (
+            // Action 1: MarkMessageRead (Recipient Only — Terminal State Locking 'sent' -> 'read')
+            (
+              request.auth.uid == existing().recipientId &&
+              existing().deliveryStatus == 'sent' &&
+              incoming().deliveryStatus == 'read' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['deliveryStatus', 'updatedAt'])
+            ) ||
+            // Action 2: ToggleSenderStar (Sender Only)
+            (
+              request.auth.uid == existing().senderId &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['starredBySender', 'updatedAt'])
+            ) ||
+            // Action 3: ToggleRecipientStar (Recipient Only)
+            (
+              request.auth.uid == existing().recipientId &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['starredByRecipient', 'updatedAt'])
+            )
+          ) &&
+          isParentChatMember(chatId, request.auth.uid);
+
+        allow delete: if false;
+      }
+    }
+  }
+}

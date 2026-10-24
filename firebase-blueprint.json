@@ -1,0 +1,466 @@
+{
+  "entities": {
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Public non-PII user profile stored in split subcollection.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the profile owner."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "User display name shown in chats."
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40,
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Unique lowercase handle for direct lookup."
+        },
+        "about": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Short WhatsApp-style status or bio line."
+        },
+        "avatarColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Hex color for user avatar badge."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "handle", "about", "avatarColor", "createdAt", "updatedAt"]
+    },
+    "PrivateUserInfo": {
+      "title": "PrivateUserInfo",
+      "description": "Strictly isolated PII document readable only by the authenticated owner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the account owner."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified account email address."
+        },
+        "emailHash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 hex digest of normalized lowercase email."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when record was updated."
+        }
+      },
+      "required": ["uid", "email", "emailHash", "createdAt", "updatedAt"]
+    },
+    "DirectoryEntry": {
+      "title": "DirectoryEntry",
+      "description": "Exact-key non-PII lookup record for handles and SHA-256 email hashes.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Target user UID."
+        },
+        "handle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40,
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Unique lowercase handle."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name."
+        },
+        "about": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Status line."
+        },
+        "avatarColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Hex color for user avatar."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp."
+        }
+      },
+      "required": ["uid", "handle", "displayName", "about", "avatarColor", "createdAt", "updatedAt"]
+    },
+    "ContactEntry": {
+      "title": "ContactEntry",
+      "description": "Saved personal contact record inside a user subcollection.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who owns this contact book entry."
+        },
+        "contactUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the saved contact."
+        },
+        "contactHandle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40,
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Handle of the saved contact."
+        },
+        "contactName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Public display name of the contact."
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 60,
+          "description": "Optional custom alias set by owner."
+        },
+        "avatarColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Avatar hex color."
+        },
+        "about": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Contact status text."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Update server timestamp."
+        }
+      },
+      "required": ["ownerId", "contactUid", "contactHandle", "contactName", "nickname", "avatarColor", "about", "createdAt", "updatedAt"]
+    },
+    "DirectChat": {
+      "title": "DirectChat",
+      "description": "1-to-1 conversation document keyed deterministically by sorted UIDs.",
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Deterministic chat ID userOneId__userTwoId."
+        },
+        "userOneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Lexicographically first participant UID."
+        },
+        "userTwoId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Lexicographically second participant UID."
+        },
+        "userOneName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name for userOne."
+        },
+        "userTwoName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name for userTwo."
+        },
+        "userOneHandle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40,
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Handle for userOne."
+        },
+        "userTwoHandle": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40,
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Handle for userTwo."
+        },
+        "userOneColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Avatar color for userOne."
+        },
+        "userTwoColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Avatar color for userTwo."
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of participant who initiated the thread."
+        },
+        "lastMessagePreview": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240,
+          "description": "Short snippet of most recent message or data packet."
+        },
+        "lastMessageKind": {
+          "type": "string",
+          "enum": ["none", "text", "data_record", "code_snippet", "file_packet"],
+          "description": "Kind of the latest message."
+        },
+        "lastSenderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the most recent sender."
+        },
+        "unreadForUserOne": {
+          "type": "integer",
+          "description": "Unread message counter for userOne."
+        },
+        "unreadForUserTwo": {
+          "type": "integer",
+          "description": "Unread message counter for userTwo."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of thread creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest activity."
+        }
+      },
+      "required": [
+        "chatId",
+        "userOneId",
+        "userTwoId",
+        "userOneName",
+        "userTwoName",
+        "userOneHandle",
+        "userTwoHandle",
+        "userOneColor",
+        "userTwoColor",
+        "createdBy",
+        "lastMessagePreview",
+        "lastMessageKind",
+        "lastSenderId",
+        "unreadForUserOne",
+        "unreadForUserTwo",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual real-time text message or structured data transfer packet.",
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent DirectChat ID."
+        },
+        "senderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of message author."
+        },
+        "recipientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of intended recipient."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name of sender."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["text", "data_record", "code_snippet", "file_packet"],
+          "description": "Message payload type."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Primary text body or summary caption."
+        },
+        "deliveryStatus": {
+          "type": "string",
+          "enum": ["sent", "read"],
+          "description": "Delivery receipt state with terminal lock at read."
+        },
+        "starredBySender": {
+          "type": "boolean",
+          "description": "Whether sender starred this message."
+        },
+        "starredByRecipient": {
+          "type": "boolean",
+          "description": "Whether recipient starred this message."
+        },
+        "replyToText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Optional quoted message preview."
+        },
+        "replyToSender": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Optional quoted message sender name."
+        },
+        "dataPacket": {
+          "type": "object",
+          "description": "Optional structured native map for sending structured records, code, or file text."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "chatId",
+        "senderId",
+        "recipientId",
+        "senderName",
+        "kind",
+        "text",
+        "deliveryStatus",
+        "starredBySender",
+        "starredByRecipient",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/public/{docId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Public non-PII profile document (docId == 'profile')."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/PrivateUserInfo" },
+      "description": "Private PII document containing verified email (docId == 'info')."
+    },
+    "/handles/{handleId}": {
+      "schema": { "$ref": "#/entities/DirectoryEntry" },
+      "description": "Exact-match handle lookup index without list permission."
+    },
+    "/lookupHashes/{hashId}": {
+      "schema": { "$ref": "#/entities/DirectoryEntry" },
+      "description": "Exact-match SHA-256 email hash lookup index without list permission."
+    },
+    "/users/{userId}/contacts/{contactUid}": {
+      "schema": { "$ref": "#/entities/ContactEntry" },
+      "description": "Personal saved contacts subcollection for each user."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/DirectChat" },
+      "description": "1-to-1 direct conversation metadata between two verified users."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages and structured data packets belonging to a DirectChat."
+    }
+  }
+}
