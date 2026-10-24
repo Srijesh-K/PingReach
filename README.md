@@ -18,3 +18,16 @@ View your app in AI Studio: https://ai.studio/apps/f4683c36-6766-4885-ad20-16636
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Admin Portal
+
+- **Route:** `/admin` (or click the shield icon in the header / auth screen)
+- **Passcode:** `admin@123`
+- **Capabilities:**
+  - Secure passcode-gated access with session persistence
+  - Live Firebase Firestore connectivity diagnostics
+  - User and directory lookup by `@handle` or email address
+  - System broadcast banner dispatcher
+  - Synchronized validation rules and avatar palette inspection
+  - Session audit logging
+
