@@ -277,7 +277,10 @@ service cloud.firestore {
         incoming().email == request.auth.token.email &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
-        existsAfter(/databases/$(database)/documents/users/$(userId)/public/profile);
+        (
+          exists(/databases/$(database)/documents/users/$(userId)/public/profile) ||
+          existsAfter(/databases/$(database)/documents/users/$(userId)/public/profile)
+        );
 
       allow update: if isValidPrivateUserInfo(incoming()) &&
         isVerified() &&
@@ -308,7 +311,12 @@ service cloud.firestore {
         incoming().handle == handleId &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
-        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId;
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId) ||
+          (existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile) &&
+           getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId)
+        );
 
       allow update: if isValidDirectoryEntry(incoming()) &&
         isVerified() &&
@@ -338,7 +346,12 @@ service cloud.firestore {
         incoming().uid == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
-        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId;
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/info) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId) ||
+          (existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info) &&
+           getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId)
+        );
 
       allow update: if isValidDirectoryEntry(incoming()) &&
         isVerified() &&

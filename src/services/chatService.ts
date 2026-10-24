@@ -115,69 +115,96 @@ export async function ensureUserAccount(user: User): Promise<{
   }
 
   const emailHash = await sha256Hex(user.email);
+  const publicData = publicSnap.exists() ? (publicSnap.data() as PublicProfile) : null;
+  const privateData = privateSnap.exists() ? (privateSnap.data() as PrivateUserInfo) : null;
+
   const rawName = user.displayName || user.email.split('@')[0] || 'WhatsConnect User';
-  const displayName = clampString(rawName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User';
-  const avatarColor = pickColorForUid(user.uid);
-  const about = 'Available on WhatsConnect';
+  const displayName = publicData?.displayName || clampString(rawName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User';
+  const avatarColor = publicData?.avatarColor || pickColorForUid(user.uid);
+  const about = publicData?.about || 'Available on WhatsConnect';
 
   // Ensure handle uniqueness via exact getDoc check
-  let candidateHandle = deriveBaseHandle(displayName, user.email, user.uid);
+  let candidateHandle = publicData?.handle || deriveBaseHandle(displayName, user.email, user.uid);
+  let existingHandleSnap;
   try {
-    const existingHandleSnap = await getDoc(doc(db, 'handles', candidateHandle));
+    existingHandleSnap = await getDoc(doc(db, 'handles', candidateHandle));
     if (existingHandleSnap.exists() && existingHandleSnap.data()?.uid !== user.uid) {
       const suffix = user.uid
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '')
         .slice(0, 6);
       candidateHandle = `${candidateHandle.slice(0, 30)}_${suffix || '1'}`;
+      existingHandleSnap = await getDoc(doc(db, 'handles', candidateHandle));
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, `handles/${candidateHandle}`);
   }
 
+  let existingLookupSnap;
+  try {
+    existingLookupSnap = await getDoc(doc(db, 'lookupHashes', emailHash));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `lookupHashes/${emailHash}`);
+  }
+
   try {
     const batch = writeBatch(db);
     const now = serverTimestamp();
+    let writeCount = 0;
 
-    batch.set(doc(db, 'users', user.uid, 'public', 'profile'), {
-      uid: user.uid,
-      displayName,
-      handle: candidateHandle,
-      about,
-      avatarColor,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!publicSnap.exists()) {
+      batch.set(doc(db, 'users', user.uid, 'public', 'profile'), {
+        uid: user.uid,
+        displayName,
+        handle: candidateHandle,
+        about,
+        avatarColor,
+        createdAt: now,
+        updatedAt: now,
+      });
+      writeCount += 1;
+    }
 
-    batch.set(doc(db, 'users', user.uid, 'private', 'info'), {
-      uid: user.uid,
-      email: user.email.slice(0, VALIDATION_RULES.EMAIL_MAX),
-      emailHash,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!privateSnap.exists()) {
+      batch.set(doc(db, 'users', user.uid, 'private', 'info'), {
+        uid: user.uid,
+        email: user.email.slice(0, VALIDATION_RULES.EMAIL_MAX),
+        emailHash,
+        createdAt: now,
+        updatedAt: now,
+      });
+      writeCount += 1;
+    }
 
-    batch.set(doc(db, 'handles', candidateHandle), {
-      uid: user.uid,
-      handle: candidateHandle,
-      displayName,
-      about,
-      avatarColor,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!existingHandleSnap?.exists()) {
+      batch.set(doc(db, 'handles', candidateHandle), {
+        uid: user.uid,
+        handle: candidateHandle,
+        displayName,
+        about,
+        avatarColor,
+        createdAt: now,
+        updatedAt: now,
+      });
+      writeCount += 1;
+    }
 
-    batch.set(doc(db, 'lookupHashes', emailHash), {
-      uid: user.uid,
-      handle: candidateHandle,
-      displayName,
-      about,
-      avatarColor,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!existingLookupSnap?.exists()) {
+      batch.set(doc(db, 'lookupHashes', emailHash), {
+        uid: user.uid,
+        handle: candidateHandle,
+        displayName,
+        about,
+        avatarColor,
+        createdAt: now,
+        updatedAt: now,
+      });
+      writeCount += 1;
+    }
 
-    await batch.commit();
+    if (writeCount > 0) {
+      await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, privatePath);
   }
@@ -190,14 +217,14 @@ export async function ensureUserAccount(user: User): Promise<{
       handle: candidateHandle,
       about,
       avatarColor,
-      createdAt: nowTs,
+      createdAt: publicData?.createdAt || nowTs,
       updatedAt: nowTs,
     },
     privateInfo: {
       uid: user.uid,
       email: user.email,
       emailHash,
-      createdAt: nowTs,
+      createdAt: privateData?.createdAt || nowTs,
       updatedAt: nowTs,
     },
     needsVerification: false,
