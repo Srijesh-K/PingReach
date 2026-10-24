@@ -17,16 +17,19 @@ import {
   MessageSquarePlus,
   Plus,
   RefreshCw,
+  Info,
   Reply,
   Search,
   Send,
   Settings,
+  Shield,
   Star,
   Trash2,
   UserPlus,
   X,
 } from 'lucide-react';
 import { auth } from './firebase';
+import { AdminPage } from './components/AdminPage';
 import { AuthScreen } from './components/AuthScreen';
 import { DataComposerModal } from './components/DataComposerModal';
 import { DataPacketCard } from './components/DataPacketCard';
@@ -95,13 +98,56 @@ function getPartnerFromChat(chat: DirectChat, myUid: string, contacts: ContactEn
   };
 }
 
+function getRoute(): string {
+  if (typeof window === 'undefined') return '/';
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  if (path === '/admin' || hash === '#/admin' || hash === '#admin') {
+    return '/admin';
+  }
+  return '/';
+}
+
 function WorkspaceApp() {
+  const [currentRoute, setCurrentRoute] = useState<string>(getRoute);
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [privateInfo, setPrivateInfo] = useState<PrivateUserInfo | null>(null);
   const [bootError, setBootError] = useState<Error | null>(null);
+
+  const [activeAnnouncement, setActiveAnnouncement] = useState<{
+    title: string;
+    message: string;
+    level: 'info' | 'warning' | 'critical';
+  } | null>(() => {
+    try {
+      const stored = localStorage.getItem('pingreach_system_announcement');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const navigateTo = (path: string) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    setCurrentRoute(path);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentRoute(getRoute());
+    };
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
+  }, []);
 
   const [chats, setChats] = useState<DirectChat[]>([]);
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
@@ -331,6 +377,22 @@ function WorkspaceApp() {
     });
   };
 
+  // Priority Route: /admin (accessible with passcode admin@123)
+  if (currentRoute === '/admin') {
+    return (
+      <AdminPage
+        onNavigateHome={() => navigateTo('/')}
+        currentUser={profile}
+        onSelectUserForChat={async (user) => {
+          navigateTo('/');
+          if (profile) {
+            await handleStartChatWithPerson(user);
+          }
+        }}
+      />
+    );
+  }
+
   // Loading Skeleton State
   if (!authReady) {
     return (
@@ -349,7 +411,7 @@ function WorkspaceApp() {
 
   // Unauthenticated -> Google / Account Creation Screen
   if (!firebaseUser) {
-    return <AuthScreen />;
+    return <AuthScreen onOpenAdmin={() => navigateTo('/admin')} />;
   }
 
   // Email verification required (if user signed up via Email/Password instead of Google)
@@ -432,6 +494,33 @@ function WorkspaceApp() {
       {/* Top Emerald Accent Strip (WhatsApp Web signature framing) */}
       <div className="h-3 bg-[#008069] shrink-0 hidden lg:block" />
 
+      {/* Global Broadcast Announcement (if published by Admin) */}
+      {activeAnnouncement && (
+        <div
+          className={`shrink-0 px-4 py-2 text-xs flex items-center justify-between border-b ${
+            activeAnnouncement.level === 'warning'
+              ? 'bg-amber-500/10 border-amber-500/20 text-amber-900'
+              : activeAnnouncement.level === 'critical'
+              ? 'bg-rose-500/10 border-rose-500/20 text-rose-900'
+              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-900'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Info className="w-4 h-4 shrink-0 text-[#008069]" />
+            <span className="font-semibold shrink-0">{activeAnnouncement.title}:</span>
+            <span className="truncate">{activeAnnouncement.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveAnnouncement(null)}
+            className="text-neutral-500 hover:text-neutral-800 p-1 cursor-pointer ml-2 shrink-0"
+            title="Dismiss announcement"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 w-full max-w-[1560px] mx-auto bg-white lg:border-x lg:border-neutral-200 flex overflow-hidden">
         {/* LEFT PANE: Conversations & Contacts Sidebar */}
         <aside
@@ -476,6 +565,15 @@ function WorkspaceApp() {
                 className="p-2 text-neutral-600 hover:text-[#111B21] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
               >
                 <Settings className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo('/admin')}
+                title="Admin Portal (/admin)"
+                aria-label="Admin Portal"
+                className="p-2 text-neutral-600 hover:text-[#008069] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+              >
+                <Shield className="w-4 h-4" />
               </button>
             </div>
           </div>

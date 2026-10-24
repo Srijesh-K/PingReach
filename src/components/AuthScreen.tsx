@@ -17,7 +17,11 @@ import {
 import { auth, FIREBASE_PROJECT_ID, googleProvider } from '../firebase';
 import authHeroImg from '../assets/images/auth_hero_communication_1792852725005.jpg';
 
-export function AuthScreen() {
+export interface AuthScreenProps {
+  onOpenAdmin?: () => void;
+}
+
+export function AuthScreen({ onOpenAdmin }: AuthScreenProps = {}) {
   const [authTab, setAuthTab] = useState<'signin' | 'signup'>('signin');
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -419,9 +423,22 @@ export function AuthScreen() {
               </div>
             )}
 
-            <div className="pt-3 border-t border-neutral-100 flex items-center gap-2 text-xs text-neutral-500">
-              <Lock className="w-3.5 h-3.5 text-[#008069] shrink-0" />
-              <span>Messages and data packets are access-controlled per participant pair.</span>
+            <div className="pt-3 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
+              <div className="flex items-center gap-2 min-w-0">
+                <Lock className="w-3.5 h-3.5 text-[#008069] shrink-0" />
+                <span className="truncate">Messages and data packets are access-controlled.</span>
+              </div>
+              {onOpenAdmin && (
+                <button
+                  type="button"
+                  onClick={onOpenAdmin}
+                  className="text-neutral-400 hover:text-[#008069] transition-colors flex items-center gap-1 font-medium whitespace-nowrap cursor-pointer ml-3 shrink-0"
+                  title="Admin Portal (/admin)"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#008069]" />
+                  <span>Admin</span>
+                </button>
+              )}
             </div>
           </div>
         </section>
