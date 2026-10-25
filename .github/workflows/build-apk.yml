@@ -56,7 +56,7 @@ jobs:
           body: |
             ## 📱 PingReach Android App
             
-            This APK connects to **https://ping-reach.vercel.app**.
+            This APK connects to **https://boltinc.xyz**.
             
             - **Auto-Updates**: Whenever you push updates to GitHub, they deploy to Vercel and appear instantly in this APK without needing to reinstall!
             - **Google Sign-In**: Powered by Android Chrome Custom Tabs (TWA) with zero disallowed user-agent errors.
