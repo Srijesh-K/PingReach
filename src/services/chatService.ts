@@ -815,3 +815,27 @@ export async function toggleMessageStar(
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
+
+export async function toggleMessageReaction(
+  chatId: string,
+  message: ChatMessage,
+  uid: string,
+  emoji: string
+): Promise<void> {
+  const path = `chats/${chatId}/messages/${message.id}`;
+  const currentReactions: Record<string, string> = { ...(message.reactions || {}) };
+  if (currentReactions[uid] === emoji) {
+    delete currentReactions[uid];
+  } else {
+    currentReactions[uid] = emoji;
+  }
+  try {
+    const now = serverTimestamp();
+    await updateDoc(doc(db, 'chats', chatId, 'messages', message.id), {
+      reactions: currentReactions,
+      updatedAt: now,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}

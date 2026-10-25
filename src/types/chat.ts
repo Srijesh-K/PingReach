@@ -133,6 +133,9 @@ export interface ChatMessage {
   replyToText?: string;
   replyToSender?: string;
   dataPacket?: DataPacket;
+  reactions?: Record<string, string>;
+  deletedFor?: string[];
+  isDeletedForEveryone?: boolean;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 }

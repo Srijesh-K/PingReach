@@ -30,6 +30,7 @@ import {
   Settings,
   Shield,
   Smartphone,
+  Smile,
   Star,
   Trash2,
   UserPlus,
@@ -53,6 +54,7 @@ import {
   subscribeToChatMessages,
   subscribeToContacts,
   subscribeToMyChats,
+  toggleMessageReaction,
   toggleMessageStar,
   updateMyProfile,
 } from './services/chatService';
@@ -240,6 +242,35 @@ function WorkspaceApp() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [chatMenuOpen]);
+
+  // Message Context Menu (Right Click)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    message: ChatMessage;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleContextMenuOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleContextMenuOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleContextMenuOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -533,6 +564,39 @@ function WorkspaceApp() {
     }));
     setShowClearModal(false);
     showToast('Chat cleared');
+  };
+
+  const handleMessageContextMenu = (e: React.MouseEvent, msg: ChatMessage) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 240;
+    const menuHeight = 280;
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 10);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 10);
+    setContextMenu({ x, y, message: msg });
+  };
+
+  const handleReactionClick = async (msg: ChatMessage, emoji: string) => {
+    if (!activeChat || !profile) return;
+    setContextMenu(null);
+    // Optimistic local update
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msg.id) return m;
+        const current = { ...(m.reactions || {}) };
+        if (current[profile.uid] === emoji) {
+          delete current[profile.uid];
+        } else {
+          current[profile.uid] = emoji;
+        }
+        return { ...m, reactions: current };
+      })
+    );
+    try {
+      await toggleMessageReaction(activeChat.chatId, msg, profile.uid, emoji);
+    } catch (err) {
+      console.warn('Reaction update error:', err);
+    }
   };
 
   const handleCopyConnectCard = async () => {
@@ -1466,7 +1530,8 @@ function WorkspaceApp() {
                         className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}
                       >
                         <div
-                          className={`relative max-w-[88%] sm:max-w-[72%] rounded-xl px-3.5 py-2.5 border ${
+                          onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                          className={`relative max-w-[88%] sm:max-w-[72%] rounded-xl px-3.5 py-2.5 border transition-shadow cursor-default select-text ${
                             isMine
                               ? 'bg-[#D9FDD3] border-[#B9EAB0] text-[#111B21]'
                               : 'bg-white border-neutral-200/90 text-[#111B21]'
@@ -1492,8 +1557,58 @@ function WorkspaceApp() {
                             <DataPacketCard kind={msg.kind} packet={msg.dataPacket} />
                           )}
 
+                          {/* Reactions Summary Badges */}
+                          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                              {(() => {
+                                const counts: Record<string, number> = {};
+                                let myReaction: string | undefined;
+                                Object.entries(msg.reactions).forEach(([uid, emoji]) => {
+                                  counts[emoji] = (counts[emoji] || 0) + 1;
+                                  if (uid === profile.uid) myReaction = emoji;
+                                });
+                                return Object.entries(counts).map(([emoji, count]) => {
+                                  const isMineReaction = myReaction === emoji;
+                                  return (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleReactionClick(msg, emoji);
+                                      }}
+                                      title={isMineReaction ? `Remove ${emoji}` : `React ${emoji}`}
+                                      className={`px-1.5 py-0.5 rounded-full text-xs flex items-center gap-1 border transition-all cursor-pointer ${
+                                        isMineReaction
+                                          ? 'bg-[#008069]/15 border-[#008069]/40 text-[#008069] font-medium'
+                                          : 'bg-white/90 border-neutral-300 text-neutral-700 hover:bg-neutral-100'
+                                      }`}
+                                    >
+                                      <span>{emoji}</span>
+                                      {count > 1 && (
+                                        <span className="text-[10px] tabular-nums font-semibold">
+                                          {count}
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          )}
+
                           {/* Bubble Footer: Actions, Timestamp & Read Receipt */}
                           <div className="mt-1.5 flex items-center justify-end gap-2 text-[11px] text-neutral-500">
+                            {/* Quick React Smile Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleMessageContextMenu(e, msg)}
+                              title="React"
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:text-[#008069] inline-flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <Smile className="w-3.5 h-3.5" />
+                            </button>
+
                             <button
                               type="button"
                               onClick={() =>
@@ -1694,6 +1809,89 @@ function WorkspaceApp() {
           }}
         />
       )}
+      {/* Right Click Message Context Menu */}
+      {contextMenu && activePartner && profile && (
+        <div
+          ref={contextMenuRef}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 w-60 bg-white rounded-2xl shadow-2xl border border-neutral-200 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100"
+        >
+          {/* Reaction Buttons */}
+          <div className="px-2.5 py-2 mb-1 flex items-center justify-between gap-1 border-b border-neutral-100 bg-[#F8FAF9] rounded-t-xl">
+            {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => {
+              const isCurrentReaction =
+                contextMenu.message.reactions?.[profile.uid] === emoji;
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleReactionClick(contextMenu.message, emoji)}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-lg transition-transform hover:scale-125 cursor-pointer ${
+                    isCurrentReaction
+                      ? 'bg-[#008069]/20 ring-2 ring-[#008069]'
+                      : 'hover:bg-neutral-200/60'
+                  }`}
+                  title={`React ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setReplyTo({
+                text: contextMenu.message.text,
+                senderName:
+                  contextMenu.message.senderId === profile.uid
+                    ? 'You'
+                    : activePartner.displayName,
+              });
+              setContextMenu(null);
+            }}
+            className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
+          >
+            <Reply className="w-4 h-4 text-neutral-500" />
+            <span>Reply</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.message.text);
+              setContextMenu(null);
+              showToast('Copied message to clipboard');
+            }}
+            className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
+          >
+            <Copy className="w-4 h-4 text-neutral-500" />
+            <span>Copy Text</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (activeChat) {
+                toggleMessageStar(activeChat.chatId, contextMenu.message, profile.uid);
+              }
+              setContextMenu(null);
+            }}
+            className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
+          >
+            <Star className="w-4 h-4 text-neutral-500" />
+            <span>
+              {(contextMenu.message.senderId === profile.uid
+                ? contextMenu.message.starredBySender
+                : contextMenu.message.starredByRecipient)
+                ? 'Unstar Message'
+                : 'Star Message'}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Clear Chat Confirmation Modal */}
       {showClearModal && activePartner && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
