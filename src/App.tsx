@@ -12,10 +12,12 @@ import {
   CheckCheck,
   Copy,
   Database,
+  Download,
   LogOut,
   MailCheck,
   MessageSquare,
   MessageSquarePlus,
+  MoreVertical,
   Info,
   Loader2,
   Paperclip,
@@ -197,6 +199,36 @@ function WorkspaceApp() {
   const [verificationSent, setVerificationSent] = useState(false);
   const [emptyImgBroken, setEmptyImgBroken] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+
+  // Chat Actions Menu & Toast
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [toastNotice, setToastNotice] = useState<string | null>(null);
+  const chatMenuRef = useRef<HTMLDivElement | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = (message: string) => {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    setToastNotice(message);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastNotice(null);
+    }, 3000);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (chatMenuRef.current && !chatMenuRef.current.contains(e.target as Node)) {
+        setChatMenuOpen(false);
+      }
+    };
+    if (chatMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [chatMenuOpen]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -414,6 +446,60 @@ function WorkspaceApp() {
       setUploadingFile(false);
       chatInputRef.current?.focus();
     }
+  };
+
+  const handleExportChat = () => {
+    setChatMenuOpen(false);
+    if (!activeChat || !activePartner) return;
+    if (visibleMessages.length === 0) {
+      showToast('No messages to export');
+      return;
+    }
+
+    const exportDate = new Date();
+    const dateFormatted = exportDate.toLocaleString();
+    const myName = profile?.displayName || 'You';
+    const partnerName = activePartner.displayName;
+
+    const header = [
+      `======================================================================`,
+      `PingReach Chat Export: ${partnerName} (@${activePartner.handle})`,
+      `Exported by: ${myName} (@${profile?.handle})`,
+      `Exported on: ${dateFormatted}`,
+      `Total Messages: ${visibleMessages.length}`,
+      `======================================================================`,
+      '',
+    ];
+
+    const body = visibleMessages.map((m) => {
+      const isMine = m.senderId === profile?.uid;
+      const sender = isMine ? myName : partnerName;
+      const time = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : 'Recent';
+
+      let line = `[${time}] ${sender}: ${m.text}`;
+      if (m.dataPacket) {
+        line += `\n  Attachment (${m.kind}): ${m.dataPacket.title || m.dataPacket.fileName || ''}`;
+        if (m.dataPacket.payloadBody) {
+          line += `\n  Payload/URL: ${m.dataPacket.payloadBody}`;
+        }
+      }
+      return line;
+    });
+
+    const fullText = [...header, ...body].join('\n\n');
+    const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safePartner = activePartner.handle.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileDate = exportDate.toISOString().slice(0, 10);
+    a.download = `Chat_with_${safePartner}_${fileDate}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('Chat exported successfully!');
   };
 
   const handleCopyConnectCard = async () => {
@@ -1252,6 +1338,36 @@ function WorkspaceApp() {
                   >
                     <Search className="w-4 h-4" />
                   </button>
+
+                  {/* Chat Options Menu */}
+                  <div ref={chatMenuRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setChatMenuOpen((prev) => !prev)}
+                      title="Chat options"
+                      aria-label="Chat options"
+                      className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                        chatMenuOpen
+                          ? 'bg-[#008069] text-white'
+                          : 'text-neutral-600 hover:bg-neutral-200/70'
+                      }`}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+
+                    {chatMenuOpen && (
+                      <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-neutral-200 py-1.5 z-40 text-xs">
+                        <button
+                          type="button"
+                          onClick={handleExportChat}
+                          className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
+                        >
+                          <Download className="w-4 h-4 text-[#008069]" />
+                          <span>Export Chat</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1532,6 +1648,13 @@ function WorkspaceApp() {
             setReplyTo(null);
           }}
         />
+      )}
+      {/* Universal Floating Toast */}
+      {toastNotice && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-[#111B21]/95 text-white text-xs font-medium rounded-full shadow-lg flex items-center gap-2 backdrop-blur-xs transition-all pointer-events-none">
+          <Check className="w-3.5 h-3.5 text-[#00A884]" />
+          <span>{toastNotice}</span>
+        </div>
       )}
     </div>
   );
