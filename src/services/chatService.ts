@@ -839,3 +839,46 @@ export async function toggleMessageReaction(
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
+
+export async function deleteMessageForMe(
+  chatId: string,
+  message: ChatMessage,
+  uid: string
+): Promise<void> {
+  const path = `chats/${chatId}/messages/${message.id}`;
+  const existing = message.deletedFor || [];
+  if (!existing.includes(uid)) {
+    const updated = [...existing, uid];
+    try {
+      const now = serverTimestamp();
+      await updateDoc(doc(db, 'chats', chatId, 'messages', message.id), {
+        deletedFor: updated,
+        updatedAt: now,
+      });
+    } catch (error) {
+      console.warn('Failed updating deletedFor in Firestore:', error);
+    }
+  }
+}
+
+export async function deleteMessageForEveryone(
+  chatId: string,
+  message: ChatMessage,
+  uid: string
+): Promise<void> {
+  if (message.senderId !== uid) {
+    throw new Error('You can only delete your own messages for everyone.');
+  }
+  const path = `chats/${chatId}/messages/${message.id}`;
+  const now = serverTimestamp();
+  try {
+    await updateDoc(doc(db, 'chats', chatId, 'messages', message.id), {
+      isDeletedForEveryone: true,
+      text: 'This message was deleted',
+      reactions: {},
+      updatedAt: now,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}

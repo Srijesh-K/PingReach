@@ -8,6 +8,7 @@ import { onAuthStateChanged, sendEmailVerification, signOut, User } from 'fireba
 import { Timestamp } from 'firebase/firestore';
 import {
   ArrowLeft,
+  Ban,
   Check,
   CheckCheck,
   Copy,
@@ -45,6 +46,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { NewChatModal } from './components/NewChatModal';
 import { ProfileDrawer } from './components/ProfileDrawer';
 import {
+  deleteMessageForEveryone,
+  deleteMessageForMe,
   deleteSavedContact,
   ensureDirectChat,
   ensureUserAccount,
@@ -218,6 +221,25 @@ function WorkspaceApp() {
       return 0;
     }
   };
+
+  const [deleteTarget, setDeleteTarget] = useState<{
+    message: ChatMessage;
+    mode: 'me' | 'everyone';
+  } | null>(null);
+  const [deletedMsgIds, setDeletedMsgIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (profile?.uid) {
+      try {
+        const raw = localStorage.getItem(`pingreach_deleted_msgs_${profile.uid}`);
+        if (raw) {
+          setDeletedMsgIds(new Set(JSON.parse(raw)));
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [profile?.uid]);
 
   const showToast = (message: string) => {
     if (toastTimerRef.current) {
@@ -399,6 +421,10 @@ function WorkspaceApp() {
       : 0;
 
     return messages.filter((m) => {
+      // Filter out messages deleted for this user
+      if (m.deletedFor?.includes(profile.uid) || deletedMsgIds.has(m.id)) {
+        return false;
+      }
       if (chatClearedAt && m.createdAt?.toMillis) {
         if (m.createdAt.toMillis() <= chatClearedAt) return false;
       }
@@ -412,7 +438,7 @@ function WorkspaceApp() {
         (m.dataPacket?.payloadBody?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [messages, inChatQuery, starredOnlyInChat, profile, activeChat, clearedAtMap]);
+  }, [messages, inChatQuery, starredOnlyInChat, profile, activeChat, clearedAtMap, deletedMsgIds]);
 
   const handleStartChatWithPerson = async (person: {
     uid: string;
@@ -524,6 +550,10 @@ function WorkspaceApp() {
       const sender = isMine ? myName : partnerName;
       const time = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : 'Recent';
 
+      if (m.isDeletedForEveryone) {
+        return `[${time}] ${sender}: [This message was deleted]`;
+      }
+
       let line = `[${time}] ${sender}: ${m.text}`;
       if (m.dataPacket) {
         line += `\n  Attachment (${m.kind}): ${m.dataPacket.title || m.dataPacket.fileName || ''}`;
@@ -596,6 +626,53 @@ function WorkspaceApp() {
       await toggleMessageReaction(activeChat.chatId, msg, profile.uid, emoji);
     } catch (err) {
       console.warn('Reaction update error:', err);
+    }
+  };
+
+  const handleConfirmDeleteMessage = async () => {
+    if (!deleteTarget || !activeChat || !profile) return;
+    const { message, mode } = deleteTarget;
+    setDeleteTarget(null);
+
+    if (mode === 'me') {
+      const nextSet = new Set(deletedMsgIds);
+      nextSet.add(message.id);
+      setDeletedMsgIds(nextSet);
+      try {
+        localStorage.setItem(
+          `pingreach_deleted_msgs_${profile.uid}`,
+          JSON.stringify(Array.from(nextSet))
+        );
+      } catch (e) {
+        console.warn('Failed saving deleted msg to localStorage', e);
+      }
+      showToast('Message deleted for you');
+      try {
+        await deleteMessageForMe(activeChat.chatId, message, profile.uid);
+      } catch (err) {
+        console.warn('Could not sync delete for me to firestore', err);
+      }
+    } else {
+      // mode === 'everyone'
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === message.id
+            ? {
+                ...m,
+                isDeletedForEveryone: true,
+                text: 'This message was deleted',
+                reactions: {},
+                dataPacket: undefined,
+              }
+            : m
+        )
+      );
+      showToast('Message deleted for everyone');
+      try {
+        await deleteMessageForEveryone(activeChat.chatId, message, profile.uid);
+      } catch (err) {
+        console.warn('Failed to delete for everyone in firestore', err);
+      }
     }
   };
 
@@ -1532,13 +1609,15 @@ function WorkspaceApp() {
                         <div
                           onContextMenu={(e) => handleMessageContextMenu(e, msg)}
                           className={`relative max-w-[88%] sm:max-w-[72%] rounded-xl px-3.5 py-2.5 border transition-shadow cursor-default select-text ${
-                            isMine
-                              ? 'bg-[#D9FDD3] border-[#B9EAB0] text-[#111B21]'
-                              : 'bg-white border-neutral-200/90 text-[#111B21]'
+                            msg.isDeletedForEveryone
+                              ? 'bg-neutral-100/90 border-neutral-200 text-neutral-500'
+                              : isMine
+                                ? 'bg-[#D9FDD3] border-[#B9EAB0] text-[#111B21]'
+                                : 'bg-white border-neutral-200/90 text-[#111B21]'
                           }`}
                         >
                           {/* Quoted Reply Box (clean all-around border, zero thick left stripe) */}
-                          {msg.replyToText && (
+                          {!msg.isDeletedForEveryone && msg.replyToText && (
                             <div className="mb-2 px-2.5 py-1.5 rounded-md bg-black/5 border border-black/10 text-xs">
                               <p className="font-semibold text-[#008069] truncate">
                                 {msg.replyToSender || 'Quoted Message'}
@@ -1547,18 +1626,27 @@ function WorkspaceApp() {
                             </div>
                           )}
 
-                          {/* Primary Text */}
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                            {msg.text}
-                          </p>
+                          {/* Primary Text or Deleted Message indicator */}
+                          {msg.isDeletedForEveryone ? (
+                            <p className="text-sm italic text-neutral-500 inline-flex items-center gap-1.5 py-0.5 select-none">
+                              <Ban className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                              <span>{isMine ? 'You deleted this message' : 'This message was deleted'}</span>
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                                {msg.text}
+                              </p>
 
-                          {/* Structured Data Packet Card */}
-                          {msg.dataPacket && msg.kind !== 'text' && (
-                            <DataPacketCard kind={msg.kind} packet={msg.dataPacket} />
+                              {/* Structured Data Packet Card */}
+                              {msg.dataPacket && msg.kind !== 'text' && (
+                                <DataPacketCard kind={msg.kind} packet={msg.dataPacket} />
+                              )}
+                            </>
                           )}
 
                           {/* Reactions Summary Badges */}
-                          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                          {!msg.isDeletedForEveryone && msg.reactions && Object.keys(msg.reactions).length > 0 && (
                             <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                               {(() => {
                                 const counts: Record<string, number> = {};
@@ -1599,43 +1687,47 @@ function WorkspaceApp() {
 
                           {/* Bubble Footer: Actions, Timestamp & Read Receipt */}
                           <div className="mt-1.5 flex items-center justify-end gap-2 text-[11px] text-neutral-500">
-                            {/* Quick React Smile Button */}
-                            <button
-                              type="button"
-                              onClick={(e) => handleMessageContextMenu(e, msg)}
-                              title="React"
-                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:text-[#008069] inline-flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <Smile className="w-3.5 h-3.5" />
-                            </button>
+                            {!msg.isDeletedForEveryone && (
+                              <>
+                                {/* Quick React Smile Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleMessageContextMenu(e, msg)}
+                                  title="React"
+                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:text-[#008069] inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Smile className="w-3.5 h-3.5" />
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setReplyTo({
-                                  text: msg.text,
-                                  senderName: isMine ? 'You' : activePartner.displayName,
-                                })
-                              }
-                              title="Reply"
-                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:text-[#111B21] inline-flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <Reply className="w-3 h-3" />
-                              <span>Reply</span>
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setReplyTo({
+                                      text: msg.text,
+                                      senderName: isMine ? 'You' : activePartner.displayName,
+                                    })
+                                  }
+                                  title="Reply"
+                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:text-[#111B21] inline-flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  <Reply className="w-3 h-3" />
+                                  <span>Reply</span>
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() => toggleMessageStar(activeChat.chatId, msg, profile.uid)}
-                              title={isStarred ? 'Unstar message' : 'Star message'}
-                              className={`transition-opacity cursor-pointer ${
-                                isStarred
-                                  ? 'text-amber-600 opacity-100'
-                                  : 'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-amber-600'
-                              }`}
-                            >
-                              <Star className="w-3 h-3 fill-current" />
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleMessageStar(activeChat.chatId, msg, profile.uid)}
+                                  title={isStarred ? 'Unstar message' : 'Star message'}
+                                  className={`transition-opacity cursor-pointer ${
+                                    isStarred
+                                      ? 'text-amber-600 opacity-100'
+                                      : 'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-amber-600'
+                                  }`}
+                                >
+                                  <Star className="w-3 h-3 fill-current" />
+                                </button>
+                              </>
+                            )}
 
                             <span className="tabular-nums">{formatBubbleTime(msg.createdAt)}</span>
 
@@ -1889,6 +1981,77 @@ function WorkspaceApp() {
                 : 'Star Message'}
             </span>
           </button>
+
+          <div className="my-1 border-t border-neutral-100" />
+
+          {/* Delete Options */}
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteTarget({ message: contextMenu.message, mode: 'me' });
+              setContextMenu(null);
+            }}
+            className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-neutral-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+          >
+            <Trash2 className="w-4 h-4 text-neutral-500" />
+            <span>Delete for me</span>
+          </button>
+
+          {contextMenu.message.senderId === profile.uid && !contextMenu.message.isDeletedForEveryone && (
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteTarget({ message: contextMenu.message, mode: 'everyone' });
+                setContextMenu(null);
+              }}
+              className="w-full px-3.5 py-2 text-left text-red-600 hover:bg-red-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+            >
+              <Trash2 className="w-4 h-4 text-red-500" />
+              <span>Delete for everyone</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Delete Message Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-neutral-200 space-y-4">
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#111B21]">
+                {deleteTarget.mode === 'everyone'
+                  ? 'Delete message for everyone?'
+                  : 'Delete message for you?'}
+              </h3>
+              <p className="mt-1 text-xs text-neutral-500 leading-relaxed">
+                {deleteTarget.mode === 'everyone'
+                  ? 'This message will be deleted for all participants in this conversation.'
+                  : 'This message will be removed from your view on this device. Other participants will still be able to see it.'}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteMessage}
+                className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>
+                  {deleteTarget.mode === 'everyone' ? 'Delete for everyone' : 'Delete for me'}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
