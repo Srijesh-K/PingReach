@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Shield } from 'lucide-react';
 import { FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID } from '../firebase';
 
 interface ErrorBoundaryState {
@@ -97,14 +97,23 @@ export class ErrorBoundary extends React.Component<
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#008069] hover:bg-[#006D59] text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Reload Application
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#008069] hover:bg-[#006D59] text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reload Application
+            </button>
+            <a
+              href="/admin"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-sm font-medium rounded-lg transition-colors whitespace-nowrap border border-neutral-300 cursor-pointer"
+            >
+              <Shield className="w-4 h-4 text-emerald-700" />
+              Admin Portal
+            </a>
+          </div>
         </div>
       </div>
     );

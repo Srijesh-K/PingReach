@@ -102,7 +102,16 @@ function getRoute(): string {
   if (typeof window === 'undefined') return '/';
   const path = window.location.pathname.toLowerCase();
   const hash = window.location.hash.toLowerCase();
-  if (path === '/admin' || hash === '#/admin' || hash === '#admin') {
+  const search = new URLSearchParams(window.location.search);
+  if (
+    path === '/admin' ||
+    path.startsWith('/admin') ||
+    hash === '#/admin' ||
+    hash === '#admin' ||
+    search.get('page') === 'admin' ||
+    search.get('route') === 'admin' ||
+    search.get('admin') !== null
+  ) {
     return '/admin';
   }
   return '/';
@@ -173,11 +182,6 @@ function WorkspaceApp() {
   const [emptyImgBroken, setEmptyImgBroken] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-
-  // Rethrow fatal Firestore errors inside render so ErrorBoundary catches them
-  if (bootError) {
-    throw bootError;
-  }
 
   // 1. Track Firebase Auth state & provision split profile on login
   useEffect(() => {
@@ -391,6 +395,11 @@ function WorkspaceApp() {
         }}
       />
     );
+  }
+
+  // Rethrow fatal Firestore errors inside render for main workspace
+  if (bootError) {
+    throw bootError;
   }
 
   // Loading Skeleton State
