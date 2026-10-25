@@ -16,9 +16,11 @@ import {
   MailCheck,
   MessageSquare,
   MessageSquarePlus,
+  Info,
+  Loader2,
+  Paperclip,
   Plus,
   RefreshCw,
-  Info,
   Reply,
   Save,
   Search,
@@ -62,6 +64,7 @@ import {
   VALIDATION_RULES,
 } from './types/chat';
 import emptyChatImg from './assets/images/empty_chat_workspace_1792852724615.jpg';
+import { uploadChatFile, formatFileSize } from './services/fileUploadService';
 
 function formatShortTime(ts: Timestamp | null): string {
   if (!ts || typeof ts.toDate !== 'function') return '';
@@ -193,9 +196,11 @@ function WorkspaceApp() {
   const [copiedOwnId, setCopiedOwnId] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [emptyImgBroken, setEmptyImgBroken] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 1. Track Firebase Auth state & provision split profile on login
   useEffect(() => {
@@ -365,6 +370,48 @@ function WorkspaceApp() {
     } finally {
       setSendingMessage(false);
       // Ensure focus remains intact after async completion
+      chatInputRef.current?.focus();
+    }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeChat || !profile) return;
+    e.target.value = '';
+
+    setUploadingFile(true);
+    try {
+      const downloadUrl = await uploadChatFile(file, activeChat.chatId);
+      const mime = file.type || '';
+      const fname = file.name.toLowerCase();
+      const isImg = mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(fname);
+      const isVid = mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(fname);
+      const isAud = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(fname);
+      const category = isImg ? 'Image' : isVid ? 'Video' : isAud ? 'Audio' : 'File';
+
+      await sendChatMessage({
+        chat: activeChat,
+        me: profile,
+        kind: 'file_packet',
+        text: `[${category}] ${file.name}`,
+        dataPacket: {
+          title: file.name.slice(0, VALIDATION_RULES.PACKET_TITLE_MAX),
+          category,
+          fileName: file.name.slice(0, VALIDATION_RULES.PACKET_FILENAME_MAX),
+          fileMimeType: (file.type || 'application/octet-stream').slice(
+            0,
+            VALIDATION_RULES.PACKET_MIMETYPE_MAX
+          ),
+          fieldOneLabel: 'File URL',
+          fieldOneValue: downloadUrl.slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+          fieldTwoLabel: 'Size',
+          fieldTwoValue: formatFileSize(file.size),
+        },
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'File upload failed. Please try again.');
+    } finally {
+      setUploadingFile(false);
       chatInputRef.current?.focus();
     }
   };
@@ -1370,6 +1417,30 @@ function WorkspaceApp() {
                 onSubmit={handleSendText}
                 className="px-3 sm:px-5 py-3 bg-[#F0F2F5] border-t border-neutral-200 flex items-end gap-2.5 shrink-0"
               >
+                {/* Hidden file input for all media and document types */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="*/*"
+                  onChange={handleFileSelected}
+                  className="hidden"
+                />
+
+                {/* Attach Any File Button */}
+                <button
+                  type="button"
+                  disabled={uploadingFile || sendingMessage}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Send any file (images, videos, audio, documents)"
+                  className="p-2.5 bg-white border border-neutral-300 hover:border-[#008069] text-neutral-600 hover:text-[#008069] rounded-lg transition-colors inline-flex items-center justify-center shrink-0 cursor-pointer disabled:opacity-50"
+                >
+                  {uploadingFile ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#008069]" />
+                  ) : (
+                    <Paperclip className="w-4 h-4" />
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setShowDataComposer(true)}
