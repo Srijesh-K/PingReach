@@ -202,9 +202,20 @@ function WorkspaceApp() {
 
   // Chat Actions Menu & Toast
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearedAtMap, setClearedAtMap] = useState<Record<string, number>>({});
   const [toastNotice, setToastNotice] = useState<string | null>(null);
   const chatMenuRef = useRef<HTMLDivElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+
+  const getClearedTimestamp = (chatId: string, uid: string): number => {
+    try {
+      const val = localStorage.getItem(`pingreach_cleared_${chatId}_${uid}`);
+      return val ? parseInt(val, 10) : 0;
+    } catch {
+      return 0;
+    }
+  };
 
   const showToast = (message: string) => {
     if (toastTimerRef.current) {
@@ -352,8 +363,14 @@ function WorkspaceApp() {
   const visibleMessages = useMemo(() => {
     if (!profile) return [];
     const q = inChatQuery.trim().toLowerCase();
+    const chatClearedAt = activeChat
+      ? (clearedAtMap[activeChat.chatId] ?? getClearedTimestamp(activeChat.chatId, profile.uid))
+      : 0;
 
     return messages.filter((m) => {
+      if (chatClearedAt && m.createdAt?.toMillis) {
+        if (m.createdAt.toMillis() <= chatClearedAt) return false;
+      }
       const isStarred =
         m.senderId === profile.uid ? m.starredBySender : m.starredByRecipient;
       if (starredOnlyInChat && !isStarred) return false;
@@ -364,7 +381,7 @@ function WorkspaceApp() {
         (m.dataPacket?.payloadBody?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [messages, inChatQuery, starredOnlyInChat, profile]);
+  }, [messages, inChatQuery, starredOnlyInChat, profile, activeChat, clearedAtMap]);
 
   const handleStartChatWithPerson = async (person: {
     uid: string;
@@ -500,6 +517,22 @@ function WorkspaceApp() {
     URL.revokeObjectURL(url);
 
     showToast('Chat exported successfully!');
+  };
+
+  const handleConfirmClearChat = () => {
+    if (!activeChat || !profile) return;
+    const now = Date.now();
+    try {
+      localStorage.setItem(`pingreach_cleared_${activeChat.chatId}_${profile.uid}`, now.toString());
+    } catch (e) {
+      console.warn('Failed saving clear chat timestamp', e);
+    }
+    setClearedAtMap((prev) => ({
+      ...prev,
+      [activeChat.chatId]: now,
+    }));
+    setShowClearModal(false);
+    showToast('Chat cleared');
   };
 
   const handleCopyConnectCard = async () => {
@@ -1365,6 +1398,18 @@ function WorkspaceApp() {
                           <Download className="w-4 h-4 text-[#008069]" />
                           <span>Export Chat</span>
                         </button>
+                        <div className="my-1 border-t border-neutral-100" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatMenuOpen(false);
+                            setShowClearModal(true);
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-red-600 hover:bg-red-50 flex items-center gap-2.5 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Clear Chat</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1649,6 +1694,42 @@ function WorkspaceApp() {
           }}
         />
       )}
+      {/* Clear Chat Confirmation Modal */}
+      {showClearModal && activePartner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-neutral-200 space-y-4">
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#111B21]">Clear this chat?</h3>
+              <p className="mt-1 text-xs text-neutral-500 leading-relaxed">
+                Are you sure you want to clear messages in this chat with{' '}
+                <span className="font-semibold text-[#111B21]">{activePartner.displayName}</span>?
+                This will remove all current messages from your view.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearChat}
+                className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg cursor-pointer transition-colors inline-flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Chat</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Universal Floating Toast */}
       {toastNotice && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-[#111B21]/95 text-white text-xs font-medium rounded-full shadow-lg flex items-center gap-2 backdrop-blur-xs transition-all pointer-events-none">
