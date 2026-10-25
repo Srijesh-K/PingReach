@@ -172,19 +172,17 @@ export function AuthScreen({ onOpenAdmin }: AuthScreenProps = {}) {
         {/* Left Column: Editorial Product Showcase */}
         <section className="lg:col-span-7 flex flex-col justify-between space-y-8">
           <div className="space-y-4 max-w-2xl">
-            <p className="text-xs font-medium text-[#008069]">
-              Direct Messaging · Structured Data Transfer · Google Identity
+            <p className="text-xs font-semibold text-[#008069] tracking-wide uppercase">
+              Fast · Simple · Secure
             </p>
             <h1
               className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight text-[#111B21] leading-[1.15]"
               style={{ textWrap: 'balance' } as React.CSSProperties}
             >
-              Send instant messages and structured data from person to person.
+              Connect & chat instantly.
             </h1>
-            <p className="text-base text-neutral-600 leading-relaxed max-w-[62ch]">
-              Sign in or create your account with Google in one click. Connect with anyone using
-              their email address or unique handle to exchange real-time messages, structured
-              records, code snippets, and downloadable data files.
+            <p className="text-sm sm:text-base text-neutral-600 leading-relaxed max-w-[50ch]">
+              Sign in with Google. Message anyone, share files, and stay connected in real time.
             </p>
           </div>
 
