@@ -276,11 +276,7 @@ service cloud.firestore {
         incoming().uid == userId &&
         incoming().email == request.auth.token.email &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          exists(/databases/$(database)/documents/users/$(userId)/public/profile) ||
-          existsAfter(/databases/$(database)/documents/users/$(userId)/public/profile)
-        );
+        incoming().updatedAt == request.time;
 
       allow update: if isValidPrivateUserInfo(incoming()) &&
         isVerified() &&
@@ -310,13 +306,7 @@ service cloud.firestore {
         incoming().uid == request.auth.uid &&
         incoming().handle == handleId &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId) ||
-          (existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile) &&
-           getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/public/profile).data.handle == handleId)
-        );
+        incoming().updatedAt == request.time;
 
       allow update: if isValidDirectoryEntry(incoming()) &&
         isVerified() &&
@@ -345,13 +335,7 @@ service cloud.firestore {
         isValidDirectoryEntry(incoming()) &&
         incoming().uid == request.auth.uid &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/info) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId) ||
-          (existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info) &&
-           getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/private/info).data.emailHash == hashId)
-        );
+        incoming().updatedAt == request.time;
 
       allow update: if isValidDirectoryEntry(incoming()) &&
         isVerified() &&
