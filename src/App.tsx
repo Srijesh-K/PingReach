@@ -835,10 +835,25 @@ function WorkspaceApp() {
           }`}
         >
           {!activeChat || !activePartner ? (
-            /* Empty Workspace State */
-            <div className="flex-1 bg-[#F8FAF9] flex flex-col items-center justify-center p-8 text-center">
-              <div className="max-w-md w-full space-y-6">
-                <div className="w-40 h-40 mx-auto rounded-2xl overflow-hidden border border-neutral-200 bg-white">
+            /* Empty Workspace State - clicking anywhere directs directly to messages */
+            <div
+              onClick={() => {
+                if (chats.length > 0) {
+                  setSelectedChatId(chats[0].chatId);
+                } else {
+                  setShowNewChatModal(true);
+                }
+              }}
+              title="Click anywhere to open your messages"
+              className="flex-1 bg-[#F8FAF9] flex flex-col items-center justify-center p-8 text-center cursor-pointer select-none group"
+            >
+              <div
+                className="max-w-md w-full space-y-6"
+                onClick={(e) => {
+                  // Keep child actions functioning while allowing empty card click
+                }}
+              >
+                <div className="w-40 h-40 mx-auto rounded-2xl overflow-hidden border border-neutral-200 bg-white group-hover:shadow-md transition-all group-hover:scale-[1.02]">
                   {!emptyImgBroken ? (
                     <img
                       src={emptyChatImg}
@@ -856,18 +871,32 @@ function WorkspaceApp() {
 
                 <div className="space-y-2">
                   <h2
-                    className="text-2xl font-bold text-[#111B21]"
+                    className="text-2xl font-bold text-[#111B21] group-hover:text-[#008069] transition-colors"
                     style={{ textWrap: 'balance' } as React.CSSProperties}
                   >
-                    WhatsConnect Web
+                    PingReach Web
                   </h2>
                   <p className="text-sm text-neutral-600 leading-relaxed">
-                    Send and receive real-time messages, structured key-value records, code
-                    payloads, and downloadable data files between verified accounts.
+                    {chats.length > 0
+                      ? 'Click anywhere to jump directly into your latest conversation.'
+                      : 'Send and receive real-time messages, media, and files between accounts.'}
                   </p>
+                  <div className="pt-1">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#008069]/10 text-[#008069] group-hover:bg-[#008069] group-hover:text-white transition-all">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>
+                        {chats.length > 0
+                          ? `Open Messages (${chats.length} chat${chats.length === 1 ? '' : 's'})`
+                          : 'Start Messaging'}
+                      </span>
+                    </span>
+                  </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-white border border-neutral-200 text-left space-y-2">
+                <div
+                  className="p-4 rounded-xl bg-white border border-neutral-200 text-left space-y-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <p className="text-xs font-semibold text-[#111B21]">
                     How another person can message you:
                   </p>
@@ -881,14 +910,23 @@ function WorkspaceApp() {
                   </p>
                 </div>
 
-                <div className="flex items-center justify-center gap-3">
+                <div
+                  className="flex items-center justify-center gap-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     type="button"
-                    onClick={() => setShowNewChatModal(true)}
-                    className="px-5 py-2.5 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                    onClick={() => {
+                      if (chats.length > 0) {
+                        setSelectedChatId(chats[0].chatId);
+                      } else {
+                        setShowNewChatModal(true);
+                      }
+                    }}
+                    className="px-5 py-2.5 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-2 whitespace-nowrap cursor-pointer shadow-sm"
                   >
                     <MessageSquarePlus className="w-4 h-4" />
-                    <span>Start New Chat</span>
+                    <span>{chats.length > 0 ? 'Go to Messages' : 'Start New Chat'}</span>
                   </button>
                   <button
                     type="button"
