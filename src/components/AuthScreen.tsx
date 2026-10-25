@@ -13,6 +13,7 @@ import {
   Lock,
   MessageSquare,
   ShieldCheck,
+  Smartphone,
 } from 'lucide-react';
 import { auth, FIREBASE_PROJECT_ID, googleProvider } from '../firebase';
 import authHeroImg from '../assets/images/auth_hero_communication_1792852725005.jpg';
@@ -130,6 +131,17 @@ export function AuthScreen({ onOpenAdmin }: AuthScreenProps = {}) {
         </nav>
 
         <div className="flex items-center gap-3 shrink-0">
+          <a
+            href="https://github.com/Srijesh-K/PingReach/releases/tag/app-latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-semibold text-neutral-700 hover:text-[#008069] flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-colors cursor-pointer"
+            title="Download PingReach Android APK"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-[#008069]" />
+            <span className="hidden sm:inline">Get Android APK</span>
+            <span className="sm:hidden">App</span>
+          </a>
           {onOpenAdmin && (
             <button
               type="button"

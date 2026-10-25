@@ -23,6 +23,7 @@ import {
   Send,
   Settings,
   Shield,
+  Smartphone,
   Star,
   Trash2,
   UserPlus,
@@ -584,6 +585,16 @@ function WorkspaceApp() {
               >
                 <Shield className="w-4 h-4" />
               </button>
+              <a
+                href="https://github.com/Srijesh-K/PingReach/releases/tag/app-latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Download Android App (APK)"
+                aria-label="Download Android App (APK)"
+                className="p-2 text-neutral-600 hover:text-[#008069] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4" />
+              </a>
             </div>
           </div>
 
