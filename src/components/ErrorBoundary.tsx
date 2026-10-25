@@ -5,6 +5,7 @@ import { FIREBASE_PROJECT_ID, FIRESTORE_DATABASE_ID } from '../firebase';
 interface ErrorBoundaryState {
   hasError: boolean;
   message: string;
+  details?: string;
   isQuotaError: boolean;
   isSpecificDailyReadQuota: boolean;
 }
@@ -18,6 +19,7 @@ export class ErrorBoundary extends React.Component<
     this.state = {
       hasError: false,
       message: '',
+      details: '',
       isQuotaError: false,
       isSpecificDailyReadQuota: false,
     };
@@ -25,10 +27,14 @@ export class ErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     let raw = error.message || 'An unexpected error occurred.';
+    let details = '';
     try {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.error === 'string') {
         raw = parsed.error;
+        if (parsed.operationType || parsed.path) {
+          details = `Operation: ${parsed.operationType?.toUpperCase()} | Path: ${parsed.path || 'unknown'}`;
+        }
       }
     } catch {
       // Plain error message
@@ -42,6 +48,7 @@ export class ErrorBoundary extends React.Component<
     return {
       hasError: true,
       message: raw,
+      details,
       isQuotaError,
       isSpecificDailyReadQuota,
     };
@@ -63,9 +70,14 @@ export class ErrorBoundary extends React.Component<
           <h1 className="text-xl font-semibold text-neutral-900 mb-2">
             Connection Interrupted
           </h1>
-          <p className="text-sm text-neutral-600 leading-relaxed mb-4">
+          <p className="text-sm text-neutral-600 leading-relaxed mb-2">
             {this.state.message}
           </p>
+          {this.state.details && (
+            <p className="text-xs font-mono text-neutral-500 bg-neutral-100 p-2.5 rounded-lg mb-4 break-all">
+              {this.state.details}
+            </p>
+          )}
 
           {this.state.isQuotaError && (
             <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2 mb-5">
