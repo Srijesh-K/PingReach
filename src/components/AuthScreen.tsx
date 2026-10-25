@@ -129,7 +129,18 @@ export function AuthScreen({ onOpenAdmin }: AuthScreenProps = {}) {
           </a>
         </nav>
 
-        <div className="flex items-center shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
+          {onOpenAdmin && (
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="text-xs font-semibold text-neutral-600 hover:text-[#008069] flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-colors cursor-pointer"
+              title="Admin Portal (/admin)"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-[#008069]" />
+              <span>Admin</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleGoogleContinue}
