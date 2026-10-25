@@ -183,6 +183,7 @@ function WorkspaceApp() {
   const [emptyImgBroken, setEmptyImgBroken] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // 1. Track Firebase Auth state & provision split profile on login
   useEffect(() => {
@@ -328,8 +329,8 @@ function WorkspaceApp() {
     setSidebarTab('all');
   };
 
-  const handleSendText = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendText = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!activeChat || !profile || !draftText.trim() || sendingMessage) return;
 
     const textToSend = draftText;
@@ -337,6 +338,9 @@ function WorkspaceApp() {
     setDraftText('');
     setReplyTo(null);
     setSendingMessage(true);
+
+    // Keep mobile keyboard open & focused immediately without dismissing
+    chatInputRef.current?.focus();
 
     try {
       await sendChatMessage({
@@ -348,6 +352,8 @@ function WorkspaceApp() {
       });
     } finally {
       setSendingMessage(false);
+      // Ensure focus remains intact after async completion
+      chatInputRef.current?.focus();
     }
   };
 
@@ -1150,6 +1156,7 @@ function WorkspaceApp() {
                 </button>
 
                 <textarea
+                  ref={chatInputRef}
                   rows={1}
                   maxLength={VALIDATION_RULES.MESSAGE_TEXT_MAX}
                   value={draftText}
@@ -1169,6 +1176,17 @@ function WorkspaceApp() {
                 <button
                   type="submit"
                   disabled={!draftText.trim() || sendingMessage}
+                  onMouseDown={(e) => {
+                    // Prevent button click from taking focus away from textarea
+                    e.preventDefault();
+                  }}
+                  onTouchStart={(e) => {
+                    // Prevent mobile keyboard from closing when tapping Send
+                    e.preventDefault();
+                    if (draftText.trim() && !sendingMessage) {
+                      handleSendText();
+                    }
+                  }}
                   className="px-4 py-2.5 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
                 >
                   <Send className="w-4 h-4" />
