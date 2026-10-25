@@ -14,11 +14,13 @@ import {
   Database,
   LogOut,
   MailCheck,
+  MessageSquare,
   MessageSquarePlus,
   Plus,
   RefreshCw,
   Info,
   Reply,
+  Save,
   Search,
   Send,
   Settings,
@@ -48,8 +50,10 @@ import {
   subscribeToContacts,
   subscribeToMyChats,
   toggleMessageStar,
+  updateMyProfile,
 } from './services/chatService';
 import {
+  AVATAR_PALETTE,
   ChatMessage,
   ContactEntry,
   DirectChat,
@@ -165,11 +169,19 @@ function WorkspaceApp() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   // Sidebar & Search controls
-  const [sidebarTab, setSidebarTab] = useState<'all' | 'unread' | 'contacts'>('all');
+  const [sidebarTab, setSidebarTab] = useState<'all' | 'unread' | 'contacts' | 'settings'>('all');
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
   const [inChatQuery, setInChatQuery] = useState('');
   const [starredOnlyInChat, setStarredOnlyInChat] = useState(false);
+
+  // Embedded Settings Tab State
+  const [settingsName, setSettingsName] = useState('');
+  const [settingsAbout, setSettingsAbout] = useState('');
+  const [settingsColor, setSettingsColor] = useState('');
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Composer & Modals
   const [draftText, setDraftText] = useState('');
@@ -370,6 +382,48 @@ function WorkspaceApp() {
     }
   };
 
+  useEffect(() => {
+    if (profile) {
+      setSettingsName(profile.displayName);
+      setSettingsAbout(profile.about);
+      setSettingsColor(profile.avatarColor);
+    }
+  }, [profile]);
+
+  const handleSaveSidebarSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!profile || !privateInfo || !settingsName.trim() || settingsSaving) return;
+    setSettingsSaving(true);
+    setSettingsError(null);
+    setSettingsNotice(false);
+
+    const cleanColor = settingsColor || profile.avatarColor;
+    try {
+      await updateMyProfile({
+        uid: profile.uid,
+        handle: profile.handle,
+        emailHash: privateInfo.emailHash,
+        displayName: settingsName,
+        about: settingsAbout,
+        avatarColor: cleanColor,
+        activeChats: chats,
+      });
+
+      setProfile({
+        ...profile,
+        displayName: settingsName.trim().slice(0, VALIDATION_RULES.DISPLAY_NAME_MAX),
+        about: settingsAbout.trim().slice(0, VALIDATION_RULES.ABOUT_MAX),
+        avatarColor: cleanColor,
+      });
+      setSettingsNotice(true);
+      window.setTimeout(() => setSettingsNotice(false), 2500);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : 'Unable to update profile.');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   const handleQuickSavePartner = async () => {
     if (!activeChat || !profile) return;
     const partner = getPartnerFromChat(activeChat, profile.uid, contacts);
@@ -548,7 +602,7 @@ function WorkspaceApp() {
           <div className="px-4 py-3 bg-[#F0F2F5] border-b border-neutral-200 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => setShowProfileDrawer(true)}
+              onClick={() => setSidebarTab(sidebarTab === 'settings' ? 'all' : 'settings')}
               className="flex items-center gap-3 min-w-0 text-left hover:opacity-90 transition-opacity cursor-pointer"
             >
               <div
@@ -575,10 +629,14 @@ function WorkspaceApp() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowProfileDrawer(true)}
+                onClick={() => setSidebarTab(sidebarTab === 'settings' ? 'all' : 'settings')}
                 title="Profile & Settings"
                 aria-label="Profile and Settings"
-                className="p-2 text-neutral-600 hover:text-[#111B21] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+                className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                  sidebarTab === 'settings'
+                    ? 'text-[#008069] bg-[#008069]/10'
+                    : 'text-neutral-600 hover:text-[#111B21] hover:bg-neutral-200/70'
+                }`}
               >
                 <Settings className="w-4 h-4" />
               </button>
@@ -627,11 +685,11 @@ function WorkspaceApp() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-1 p-1 bg-[#F0F2F5] rounded-lg">
+            <div className="grid grid-cols-4 gap-1 p-1 bg-[#F0F2F5] rounded-lg">
               <button
                 type="button"
                 onClick={() => setSidebarTab('all')}
-                className={`py-1.5 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
                   sidebarTab === 'all'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -642,7 +700,7 @@ function WorkspaceApp() {
               <button
                 type="button"
                 onClick={() => setSidebarTab('unread')}
-                className={`py-1.5 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer ${
+                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
                   sidebarTab === 'unread'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -653,7 +711,7 @@ function WorkspaceApp() {
               <button
                 type="button"
                 onClick={() => setSidebarTab('contacts')}
-                className={`py-1.5 px-2.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer ${
+                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
                   sidebarTab === 'contacts'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -661,12 +719,142 @@ function WorkspaceApp() {
               >
                 Contacts ({contacts.length})
               </button>
+              <button
+                type="button"
+                onClick={() => setSidebarTab('settings')}
+                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
+                  sidebarTab === 'settings'
+                    ? 'bg-white text-[#111B21] shadow-xs'
+                    : 'text-neutral-600 hover:text-[#111B21]'
+                }`}
+              >
+                Settings
+              </button>
             </div>
           </div>
 
-          {/* Conversation or Contact List */}
+          {/* Conversation, Contact List, or Settings Panel */}
           <div className="flex-1 overflow-y-auto divide-y divide-neutral-100">
-            {sidebarTab === 'contacts' ? (
+            {sidebarTab === 'settings' ? (
+              <div className="p-4 space-y-4">
+                <div className="flex items-center gap-3.5 pb-3 border-b border-neutral-100">
+                  <div
+                    className="w-14 h-14 rounded-full text-white text-lg font-bold flex items-center justify-center shrink-0 shadow-sm"
+                    style={{ backgroundColor: settingsColor || profile.avatarColor }}
+                  >
+                    {(settingsName || profile.displayName).slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-[#111B21] truncate">{profile.displayName}</p>
+                    <p className="text-xs text-neutral-500 truncate">{privateInfo.email}</p>
+                    <button
+                      type="button"
+                      onClick={handleCopyConnectCard}
+                      className="mt-1 text-xs font-semibold text-[#008069] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedOwnId ? <Check className="w-3 h-3 text-[#008069]" /> : <Copy className="w-3 h-3" />}
+                      <span>@{profile.handle}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveSidebarSettings} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1.5">
+                      Avatar Color
+                    </label>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {AVATAR_PALETTE.map((hex) => (
+                        <button
+                          key={hex}
+                          type="button"
+                          onClick={() => setSettingsColor(hex)}
+                          aria-label={`Select color ${hex}`}
+                          className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
+                            (settingsColor || profile.avatarColor) === hex
+                              ? 'ring-2 ring-offset-2 ring-[#008069] scale-110'
+                              : 'hover:scale-105'
+                          }`}
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      Display Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={VALIDATION_RULES.DISPLAY_NAME_MAX}
+                      value={settingsName}
+                      onChange={(e) => setSettingsName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-[#F8FAF9] border border-neutral-300 rounded-lg focus:outline-none focus:border-[#008069]"
+                      placeholder="Your name"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      About / Status
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={VALIDATION_RULES.ABOUT_MAX}
+                      value={settingsAbout}
+                      onChange={(e) => setSettingsAbout(e.target.value)}
+                      placeholder="Available on PingReach"
+                      className="w-full px-3 py-2 text-xs bg-[#F8FAF9] border border-neutral-300 rounded-lg focus:outline-none focus:border-[#008069]"
+                    />
+                  </div>
+
+                  {settingsError && (
+                    <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                      {settingsError}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={settingsSaving || !settingsName.trim()}
+                    className="w-full py-2.5 px-4 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer disabled:opacity-60 shadow-xs"
+                  >
+                    {settingsNotice ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Changes Saved</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>{settingsSaving ? 'Saving...' : 'Save Profile Changes'}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                <div className="pt-3 border-t border-neutral-200 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('/admin')}
+                    className="w-full py-2 px-3 bg-neutral-50 hover:bg-neutral-100 text-neutral-700 text-xs font-medium rounded-lg border border-neutral-200 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Shield className="w-3.5 h-3.5 text-[#008069]" />
+                    <span>Open Admin Portal</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => signOut(auth)}
+                    className="w-full py-2 px-3 bg-neutral-50 hover:bg-red-50 text-neutral-700 hover:text-red-700 text-xs font-medium rounded-lg border border-neutral-200 transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
+            ) : sidebarTab === 'contacts' ? (
               filteredContacts.length === 0 ? (
                 <div className="p-8 text-center space-y-3">
                   <p className="text-sm font-semibold text-[#111B21]">No saved contacts yet</p>
