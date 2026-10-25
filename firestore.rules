@@ -188,7 +188,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'chatId', 'senderId', 'recipientId', 'senderName',
           'kind', 'text', 'deliveryStatus', 'starredBySender', 'starredByRecipient',
-          'replyToText', 'replyToSender', 'dataPacket',
+          'replyToText', 'replyToSender', 'dataPacket', 'reactions', 'deletedFor', 'isDeletedForEveryone',
           'createdAt', 'updatedAt'
         ]) &&
         (data.senderId == request.auth.uid || data.recipientId == request.auth.uid) &&
@@ -205,6 +205,9 @@ service cloud.firestore {
         (!('replyToText' in data) || (data.replyToText is string && data.replyToText.size() >= 1 && data.replyToText.size() <= 240)) &&
         (!('replyToSender' in data) || (data.replyToSender is string && data.replyToSender.size() >= 1 && data.replyToSender.size() <= 60)) &&
         (!('dataPacket' in data) || isValidDataPacket(data.dataPacket)) &&
+        (!('reactions' in data) || data.reactions is map) &&
+        (!('deletedFor' in data) || data.deletedFor is list) &&
+        (!('isDeletedForEveryone' in data) || data.isDeletedForEveryone is bool) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -513,7 +516,7 @@ service cloud.firestore {
           incoming().recipientId == existing().recipientId &&
           incoming().senderName == existing().senderName &&
           incoming().kind == existing().kind &&
-          incoming().text == existing().text &&
+          (incoming().text == existing().text || (request.auth.uid == existing().senderId && incoming().isDeletedForEveryone == true)) &&
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time && (
             // Action 1: MarkMessageRead (Recipient Only — Terminal State Locking 'sent' -> 'read')
@@ -532,6 +535,20 @@ service cloud.firestore {
             (
               request.auth.uid == existing().recipientId &&
               incoming().diff(existing()).affectedKeys().hasOnly(['starredByRecipient', 'updatedAt'])
+            ) ||
+            // Action 4: ToggleReaction (Chat Member)
+            (
+              incoming().diff(existing()).affectedKeys().hasOnly(['reactions', 'updatedAt'])
+            ) ||
+            // Action 5: DeleteForMe (Chat Member)
+            (
+              incoming().diff(existing()).affectedKeys().hasOnly(['deletedFor', 'updatedAt'])
+            ) ||
+            // Action 6: DeleteForEveryone (Sender Only)
+            (
+              request.auth.uid == existing().senderId &&
+              incoming().isDeletedForEveryone == true &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['isDeletedForEveryone', 'text', 'reactions', 'updatedAt'])
             )
           ) &&
           isParentChatMember(chatId, request.auth.uid);
