@@ -21,6 +21,8 @@ import {
   DataPacket,
   DirectChat,
   DirectoryEntry,
+  GroupChat,
+  GroupMessage,
   MessageKind,
   PrivateUserInfo,
   PublicProfile,
@@ -873,6 +875,316 @@ export async function deleteMessageForEveryone(
   const now = serverTimestamp();
   try {
     await updateDoc(doc(db, 'chats', chatId, 'messages', message.id), {
+      isDeletedForEveryone: true,
+      text: 'This message was deleted',
+      reactions: {},
+      updatedAt: now,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Group Chat Operations
+// -----------------------------------------------------------------------------
+
+export async function createGroupChat(params: {
+  name: string;
+  description?: string;
+  avatarColor?: string;
+  members: Array<{ uid: string; displayName: string; handle: string; avatarColor?: string }>;
+  me: PublicProfile;
+}): Promise<string> {
+  const { name, description = '', avatarColor, members, me } = params;
+  const cleanName = clampString(name, VALIDATION_RULES.GROUP_NAME_MAX);
+  if (!cleanName) {
+    throw new Error('Group name cannot be empty.');
+  }
+
+  const allMembersMap = new Map<string, { uid: string; displayName: string; handle: string; avatarColor: string }>();
+  allMembersMap.set(me.uid, {
+    uid: me.uid,
+    displayName: clampString(me.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+    handle: me.handle,
+    avatarColor: me.avatarColor || AVATAR_PALETTE[0],
+  });
+
+  for (const m of members) {
+    if (m.uid && !allMembersMap.has(m.uid)) {
+      allMembersMap.set(m.uid, {
+        uid: m.uid,
+        displayName: clampString(m.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+        handle: m.handle || 'user',
+        avatarColor: m.avatarColor || AVATAR_PALETTE[1],
+      });
+    }
+  }
+
+  if (allMembersMap.size < 2) {
+    throw new Error('Please select at least 1 friend to create a group.');
+  }
+
+  const memberIds: string[] = [];
+  const memberNames: Record<string, string> = {};
+  const memberHandles: Record<string, string> = {};
+  const memberColors: Record<string, string> = {};
+  const unreadCounts: Record<string, number> = {};
+
+  allMembersMap.forEach((val, uid) => {
+    memberIds.push(uid);
+    memberNames[uid] = val.displayName;
+    memberHandles[uid] = val.handle;
+    memberColors[uid] = val.avatarColor;
+    unreadCounts[uid] = 0;
+  });
+
+  const groupCol = collection(db, 'groups');
+  const groupRef = doc(groupCol);
+  const now = serverTimestamp();
+
+  const groupData: Record<string, unknown> = {
+    groupId: groupRef.id,
+    name: cleanName,
+    description: clampString(description, VALIDATION_RULES.GROUP_DESC_MAX),
+    avatarColor: avatarColor && AVATAR_PALETTE.includes(avatarColor as any) ? avatarColor : AVATAR_PALETTE[0],
+    createdBy: me.uid,
+    createdByName: clampString(me.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+    memberIds,
+    memberNames,
+    memberHandles,
+    memberColors,
+    lastMessagePreview: `Group created by ${clampString(me.displayName, 30)}`,
+    lastMessageKind: 'none',
+    lastSenderId: me.uid,
+    lastSenderName: clampString(me.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+    unreadCounts,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await setDoc(groupRef, groupData);
+    return groupRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `groups/${groupRef.id}`);
+  }
+}
+
+export function subscribeToMyGroups(
+  uid: string,
+  onGroups: (groups: GroupChat[]) => void
+): () => void {
+  const path = 'groups';
+  const q = query(collection(db, 'groups'), where('memberIds', 'array-contains', uid));
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: GroupChat[] = [];
+      snap.forEach((d) => {
+        list.push(d.data() as GroupChat);
+      });
+      list.sort((a, b) => {
+        const aTime = a.updatedAt?.toMillis?.() ?? 0;
+        const bTime = b.updatedAt?.toMillis?.() ?? 0;
+        return bTime - aTime;
+      });
+      onGroups(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  );
+}
+
+export function subscribeToGroupMessages(
+  groupId: string,
+  onMessages: (messages: GroupMessage[]) => void
+): () => void {
+  const path = `groups/${groupId}/messages`;
+  const q = query(collection(db, 'groups', groupId, 'messages'));
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: GroupMessage[] = [];
+      snap.forEach((d) => {
+        list.push({
+          id: d.id,
+          ...(d.data() as Omit<GroupMessage, 'id'>),
+        });
+      });
+      list.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? 0;
+        return aTime - bTime;
+      });
+      onMessages(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  );
+}
+
+export async function sendGroupMessage(params: {
+  group: GroupChat;
+  me: PublicProfile;
+  kind: MessageKind;
+  text: string;
+  replyTo?: { text: string; senderName: string } | null;
+  dataPacket?: DataPacket;
+}): Promise<void> {
+  const { group, me, kind } = params;
+  const cleanText = clampString(params.text, VALIDATION_RULES.MESSAGE_TEXT_MAX);
+
+  if (!cleanText) {
+    throw new Error('Message cannot be empty.');
+  }
+
+  const messagesCol = collection(db, 'groups', group.groupId, 'messages');
+  const messageRef = doc(messagesCol);
+  const path = `groups/${group.groupId}/messages/${messageRef.id}`;
+
+  const now = serverTimestamp();
+  const messagePayload: Record<string, unknown> = {
+    groupId: group.groupId,
+    senderId: me.uid,
+    senderName: clampString(me.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+    senderColor: me.avatarColor || AVATAR_PALETTE[0],
+    kind,
+    text: cleanText,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (params.replyTo && params.replyTo.text.trim()) {
+    messagePayload.replyToText = clampString(
+      params.replyTo.text,
+      VALIDATION_RULES.REPLY_PREVIEW_MAX
+    );
+    messagePayload.replyToSender =
+      clampString(params.replyTo.senderName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User';
+  }
+
+  const sanitizedPacket = buildSanitizedDataPacket(params.dataPacket);
+  if (sanitizedPacket) {
+    messagePayload.dataPacket = sanitizedPacket;
+  }
+
+  const previewPrefix =
+    kind === 'data_record'
+      ? `[Record] ${sanitizedPacket?.title || cleanText}`
+      : kind === 'code_snippet'
+        ? `[Code] ${sanitizedPacket?.title || cleanText}`
+        : kind === 'file_packet'
+          ? `[File] ${sanitizedPacket?.fileName || sanitizedPacket?.title || cleanText}`
+          : cleanText;
+
+  const nextUnread: Record<string, number> = { ...(group.unreadCounts || {}) };
+  for (const mid of group.memberIds) {
+    if (mid === me.uid) {
+      nextUnread[mid] = 0;
+    } else {
+      nextUnread[mid] = Math.min(9999, (nextUnread[mid] || 0) + 1);
+    }
+  }
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(messageRef, messagePayload);
+    batch.update(doc(db, 'groups', group.groupId), {
+      lastMessagePreview: clampString(previewPrefix, VALIDATION_RULES.CHAT_PREVIEW_MAX),
+      lastMessageKind: kind,
+      lastSenderId: me.uid,
+      lastSenderName: clampString(me.displayName, VALIDATION_RULES.DISPLAY_NAME_MAX) || 'User',
+      unreadCounts: nextUnread,
+      updatedAt: now,
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function markGroupRead(
+  group: GroupChat,
+  uid: string
+): Promise<void> {
+  const currentUnread = group.unreadCounts?.[uid] || 0;
+  if (currentUnread === 0) return;
+
+  const nextUnread = { ...(group.unreadCounts || {}), [uid]: 0 };
+  const now = serverTimestamp();
+  try {
+    await updateDoc(doc(db, 'groups', group.groupId), {
+      unreadCounts: nextUnread,
+      updatedAt: now,
+    });
+  } catch (error) {
+    console.warn('Failed to mark group as read:', error);
+  }
+}
+
+export async function toggleGroupMessageReaction(
+  groupId: string,
+  message: GroupMessage,
+  uid: string,
+  emoji: string
+): Promise<void> {
+  const path = `groups/${groupId}/messages/${message.id}`;
+  const reactions = { ...(message.reactions || {}) };
+
+  if (reactions[uid] === emoji) {
+    delete reactions[uid];
+  } else {
+    reactions[uid] = emoji;
+  }
+
+  const now = serverTimestamp();
+  try {
+    await updateDoc(doc(db, 'groups', groupId, 'messages', message.id), {
+      reactions,
+      updatedAt: now,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteGroupMessageForMe(
+  groupId: string,
+  message: GroupMessage,
+  uid: string
+): Promise<void> {
+  const existing = message.deletedFor || [];
+  if (!existing.includes(uid)) {
+    const updated = [...existing, uid];
+    try {
+      const now = serverTimestamp();
+      await updateDoc(doc(db, 'groups', groupId, 'messages', message.id), {
+        deletedFor: updated,
+        updatedAt: now,
+      });
+    } catch (error) {
+      console.warn('Failed updating group deletedFor in Firestore:', error);
+    }
+  }
+}
+
+export async function deleteGroupMessageForEveryone(
+  groupId: string,
+  message: GroupMessage,
+  uid: string
+): Promise<void> {
+  if (message.senderId !== uid) {
+    throw new Error('You can only delete your own messages for everyone.');
+  }
+  const path = `groups/${groupId}/messages/${message.id}`;
+  const now = serverTimestamp();
+  try {
+    await updateDoc(doc(db, 'groups', groupId, 'messages', message.id), {
       isDeletedForEveryone: true,
       text: 'This message was deleted',
       reactions: {},
