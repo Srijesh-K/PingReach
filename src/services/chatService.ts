@@ -600,44 +600,44 @@ export function subscribeToChatMessages(
   };
 }
 
-function buildSanitizedDataPacket(raw?: DataPacket): DataPacket | undefined {
+export function buildSanitizedDataPacket(raw?: DataPacket): DataPacket | undefined {
   if (!raw) return undefined;
   const title = clampString(raw.title, VALIDATION_RULES.PACKET_TITLE_MAX) || 'Data Packet';
-  const category = clampString(raw.category, VALIDATION_RULES.PACKET_CATEGORY_MAX) || 'General';
+  const category = clampString(raw.category, VALIDATION_RULES.PACKET_CATEGORY_MAX) || 'Data';
 
   const clean: DataPacket = {
     title,
     category,
   };
 
-  if (raw.fieldOneLabel !== undefined) {
-    clean.fieldOneLabel = clampString(raw.fieldOneLabel, VALIDATION_RULES.PACKET_LABEL_MAX);
+  const f1Val = raw.fieldOneValue !== undefined ? clampString(raw.fieldOneValue, VALIDATION_RULES.PACKET_VALUE_MAX) : undefined;
+  if (f1Val !== undefined && f1Val.length > 0) {
+    clean.fieldOneLabel = clampString(raw.fieldOneLabel || 'Field 1', VALIDATION_RULES.PACKET_LABEL_MAX);
+    clean.fieldOneValue = f1Val;
   }
-  if (raw.fieldOneValue !== undefined) {
-    clean.fieldOneValue = clampString(raw.fieldOneValue, VALIDATION_RULES.PACKET_VALUE_MAX);
+
+  const f2Val = raw.fieldTwoValue !== undefined ? clampString(raw.fieldTwoValue, VALIDATION_RULES.PACKET_VALUE_MAX) : undefined;
+  if (f2Val !== undefined && f2Val.length > 0) {
+    clean.fieldTwoLabel = clampString(raw.fieldTwoLabel || 'Field 2', VALIDATION_RULES.PACKET_LABEL_MAX);
+    clean.fieldTwoValue = f2Val;
   }
-  if (raw.fieldTwoLabel !== undefined) {
-    clean.fieldTwoLabel = clampString(raw.fieldTwoLabel, VALIDATION_RULES.PACKET_LABEL_MAX);
+
+  const f3Val = raw.fieldThreeValue !== undefined ? clampString(raw.fieldThreeValue, VALIDATION_RULES.PACKET_VALUE_MAX) : undefined;
+  if (f3Val !== undefined && f3Val.length > 0) {
+    clean.fieldThreeLabel = clampString(raw.fieldThreeLabel || 'Field 3', VALIDATION_RULES.PACKET_LABEL_MAX);
+    clean.fieldThreeValue = f3Val;
   }
-  if (raw.fieldTwoValue !== undefined) {
-    clean.fieldTwoValue = clampString(raw.fieldTwoValue, VALIDATION_RULES.PACKET_VALUE_MAX);
-  }
-  if (raw.fieldThreeLabel !== undefined) {
-    clean.fieldThreeLabel = clampString(raw.fieldThreeLabel, VALIDATION_RULES.PACKET_LABEL_MAX);
-  }
-  if (raw.fieldThreeValue !== undefined) {
-    clean.fieldThreeValue = clampString(raw.fieldThreeValue, VALIDATION_RULES.PACKET_VALUE_MAX);
-  }
-  if (raw.codeLanguage !== undefined) {
+
+  if (raw.codeLanguage !== undefined && raw.codeLanguage.trim().length > 0) {
     clean.codeLanguage = clampString(raw.codeLanguage, VALIDATION_RULES.PACKET_CODE_LANG_MAX);
   }
-  if (raw.fileName !== undefined) {
+  if (raw.fileName !== undefined && raw.fileName.trim().length > 0) {
     clean.fileName = clampString(raw.fileName, VALIDATION_RULES.PACKET_FILENAME_MAX);
   }
-  if (raw.fileMimeType !== undefined) {
+  if (raw.fileMimeType !== undefined && raw.fileMimeType.trim().length > 0) {
     clean.fileMimeType = clampString(raw.fileMimeType, VALIDATION_RULES.PACKET_MIMETYPE_MAX);
   }
-  if (raw.payloadBody !== undefined) {
+  if (raw.payloadBody !== undefined && raw.payloadBody.length > 0) {
     clean.payloadBody = raw.payloadBody.slice(0, VALIDATION_RULES.PACKET_PAYLOAD_MAX);
   }
 

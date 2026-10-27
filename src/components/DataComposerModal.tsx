@@ -38,6 +38,7 @@ export function DataComposerModal({
   const [fileName, setFileName] = useState('');
   const [fileMimeType, setFileMimeType] = useState('text/plain');
   const [fileError, setFileError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,8 +72,23 @@ export function DataComposerModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanTitle = title.trim().slice(0, VALIDATION_RULES.PACKET_TITLE_MAX);
-    if (!cleanTitle) return;
+    setFormError(null);
+
+    let cleanTitle = title.trim().slice(0, VALIDATION_RULES.PACKET_TITLE_MAX);
+    if (!cleanTitle) {
+      if (mode === 'data_record') {
+        cleanTitle = fieldOneValue.trim() ? `Record: ${fieldOneValue.trim().slice(0, 30)}` : 'Structured Data';
+      } else if (mode === 'code_snippet') {
+        cleanTitle = `${codeLanguage} Snippet`;
+      } else {
+        cleanTitle = fileName || 'Shared Document';
+      }
+    }
+
+    if (mode === 'code_snippet' && !payloadBody.trim()) {
+      setFormError('Please enter code or JSON payload content.');
+      return;
+    }
 
     setSending(true);
     try {
@@ -84,17 +100,29 @@ export function DataComposerModal({
       if (mode === 'data_record') {
         packet = {
           ...packet,
-          fieldOneLabel: fieldOneLabel.trim().slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
-          fieldOneValue: fieldOneValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
-          fieldTwoLabel: fieldTwoLabel.trim().slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
-          fieldTwoValue: fieldTwoValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
-          fieldThreeLabel: fieldThreeLabel.trim().slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
-          fieldThreeValue: fieldThreeValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+          ...(fieldOneValue.trim()
+            ? {
+                fieldOneLabel: (fieldOneLabel.trim() || 'Field 1').slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
+                fieldOneValue: fieldOneValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+              }
+            : {}),
+          ...(fieldTwoValue.trim()
+            ? {
+                fieldTwoLabel: (fieldTwoLabel.trim() || 'Field 2').slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
+                fieldTwoValue: fieldTwoValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+              }
+            : {}),
+          ...(fieldThreeValue.trim()
+            ? {
+                fieldThreeLabel: (fieldThreeLabel.trim() || 'Field 3').slice(0, VALIDATION_RULES.PACKET_LABEL_MAX),
+                fieldThreeValue: fieldThreeValue.trim().slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+              }
+            : {}),
         };
       } else if (mode === 'code_snippet') {
         packet = {
           ...packet,
-          codeLanguage: codeLanguage.trim().slice(0, VALIDATION_RULES.PACKET_CODE_LANG_MAX),
+          codeLanguage: codeLanguage.trim().slice(0, VALIDATION_RULES.PACKET_CODE_LANG_MAX) || 'JSON',
           payloadBody: payloadBody.slice(0, VALIDATION_RULES.PACKET_PAYLOAD_MAX),
         };
       } else {
@@ -108,7 +136,7 @@ export function DataComposerModal({
             0,
             VALIDATION_RULES.PACKET_MIMETYPE_MAX
           ),
-          payloadBody: payloadBody.slice(0, VALIDATION_RULES.PACKET_PAYLOAD_MAX),
+          ...(payloadBody ? { payloadBody: payloadBody.slice(0, VALIDATION_RULES.PACKET_PAYLOAD_MAX) } : {}),
         };
       }
 
@@ -126,6 +154,8 @@ export function DataComposerModal({
         dataPacket: packet,
       });
       onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Unable to send data packet. Please try again.');
     } finally {
       setSending(false);
     }
@@ -152,6 +182,13 @@ export function DataComposerModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+          {formError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center gap-2">
+              <span className="font-semibold">Error:</span>
+              <span>{formError}</span>
+            </div>
+          )}
+
           {/* Interactive Segmented Mode Selector */}
           <div className="grid grid-cols-3 gap-1 p-1 bg-[#F0F2F5] rounded-lg">
             <button
