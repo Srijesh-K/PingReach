@@ -35,6 +35,7 @@ import {
   Star,
   Trash2,
   UserPlus,
+  Users,
   X,
 } from 'lucide-react';
 import { auth } from './firebase';
@@ -44,6 +45,7 @@ import { DataComposerModal } from './components/DataComposerModal';
 import { DataPacketCard } from './components/DataPacketCard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NewChatModal } from './components/NewChatModal';
+import { NewGroupModal } from './components/NewGroupModal';
 import { ProfileDrawer } from './components/ProfileDrawer';
 import {
   deleteMessageForEveryone,
@@ -52,11 +54,16 @@ import {
   ensureDirectChat,
   ensureUserAccount,
   markChatAndMessagesRead,
+  markGroupRead,
   savePersonToContacts,
   sendChatMessage,
+  sendGroupMessage,
   subscribeToChatMessages,
   subscribeToContacts,
+  subscribeToGroupMessages,
   subscribeToMyChats,
+  subscribeToMyGroups,
+  toggleGroupMessageReaction,
   toggleMessageReaction,
   toggleMessageStar,
   updateMyProfile,
@@ -66,6 +73,8 @@ import {
   ChatMessage,
   ContactEntry,
   DirectChat,
+  GroupChat,
+  GroupMessage,
   PrivateUserInfo,
   PublicProfile,
   VALIDATION_RULES,
@@ -174,12 +183,15 @@ function WorkspaceApp() {
   }, []);
 
   const [chats, setChats] = useState<DirectChat[]>([]);
+  const [groups, setGroups] = useState<GroupChat[]>([]);
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
 
   // Sidebar & Search controls
-  const [sidebarTab, setSidebarTab] = useState<'all' | 'unread' | 'contacts' | 'settings'>('all');
+  const [sidebarTab, setSidebarTab] = useState<'all' | 'groups' | 'unread' | 'contacts' | 'settings'>('all');
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [inChatSearchOpen, setInChatSearchOpen] = useState(false);
   const [inChatQuery, setInChatQuery] = useState('');
@@ -198,6 +210,8 @@ function WorkspaceApp() {
   const [replyTo, setReplyTo] = useState<{ text: string; senderName: string } | null>(null);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [showNewGroupModal, setShowNewGroupModal] = useState(false);
+  const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
   const [showDataComposer, setShowDataComposer] = useState(false);
   const [copiedOwnId, setCopiedOwnId] = useState(false);
@@ -329,16 +343,20 @@ function WorkspaceApp() {
     return () => unsub();
   }, []);
 
-  // 2. Attach real-time chats & contacts listeners once authenticated & verified
+  // 2. Attach real-time chats, groups & contacts listeners once authenticated & verified
   useEffect(() => {
     if (!authReady || !profile || needsVerification) return;
 
     let unsubChats = () => {};
+    let unsubGroups = () => {};
     let unsubContacts = () => {};
 
     try {
       unsubChats = subscribeToMyChats(profile.uid, (nextChats) => {
         setChats(nextChats);
+      });
+      unsubGroups = subscribeToMyGroups(profile.uid, (nextGroups) => {
+        setGroups(nextGroups);
       });
       unsubContacts = subscribeToContacts(profile.uid, (nextContacts) => {
         setContacts(nextContacts);
@@ -349,11 +367,12 @@ function WorkspaceApp() {
 
     return () => {
       unsubChats();
+      unsubGroups();
       unsubContacts();
     };
   }, [authReady, profile?.uid, needsVerification]);
 
-  // 3. Attach real-time messages listener for the active conversation
+  // 3. Attach real-time messages listener for the active direct conversation
   useEffect(() => {
     if (!selectedChatId || !profile || needsVerification) {
       setMessages([]);
@@ -367,23 +386,48 @@ function WorkspaceApp() {
     return () => unsubMessages();
   }, [selectedChatId, profile?.uid, needsVerification]);
 
+  // 3b. Attach real-time messages listener for active group conversation
+  useEffect(() => {
+    if (!selectedGroupId || !profile || needsVerification) {
+      setGroupMessages([]);
+      return;
+    }
+
+    const unsubGroupMsgs = subscribeToGroupMessages(selectedGroupId, (nextGroupMsgs) => {
+      setGroupMessages(nextGroupMsgs);
+    });
+
+    return () => unsubGroupMsgs();
+  }, [selectedGroupId, profile?.uid, needsVerification]);
+
   const activeChat = useMemo(
     () => chats.find((c) => c.chatId === selectedChatId) || null,
     [chats, selectedChatId]
   );
 
-  // 4. Mark unread incoming messages as read when viewing activeChat
+  const activeGroup = useMemo(
+    () => groups.find((g) => g.groupId === selectedGroupId) || null,
+    [groups, selectedGroupId]
+  );
+
+  // 4. Mark unread incoming messages as read when viewing activeChat or activeGroup
   useEffect(() => {
-    if (!activeChat || !profile) return;
-    markChatAndMessagesRead(activeChat, messages, profile.uid).catch((err) => {
-      console.error('Failed marking read:', err);
-    });
-  }, [activeChat, messages, profile?.uid]);
+    if (activeChat && profile) {
+      markChatAndMessagesRead(activeChat, messages, profile.uid).catch((err) => {
+        console.error('Failed marking chat read:', err);
+      });
+    }
+    if (activeGroup && profile) {
+      markGroupRead(activeGroup, profile.uid).catch((err) => {
+        console.error('Failed marking group read:', err);
+      });
+    }
+  }, [activeChat, messages, activeGroup, groupMessages.length, profile?.uid]);
 
   // Auto-scroll to newest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, selectedChatId]);
+  }, [messages.length, groupMessages.length, selectedChatId, selectedGroupId]);
 
   const filteredChats = useMemo(() => {
     if (!profile) return [];
@@ -403,6 +447,22 @@ function WorkspaceApp() {
     });
   }, [chats, contacts, profile, sidebarSearch, sidebarTab]);
 
+  const filteredGroups = useMemo(() => {
+    if (!profile) return [];
+    const q = sidebarSearch.trim().toLowerCase();
+
+    return groups.filter((group) => {
+      const unread = group.unreadCounts?.[profile.uid] || 0;
+      if (sidebarTab === 'unread' && unread === 0) return false;
+      if (!q) return true;
+      return (
+        group.name.toLowerCase().includes(q) ||
+        (group.description || '').toLowerCase().includes(q) ||
+        (group.lastMessagePreview || '').toLowerCase().includes(q)
+      );
+    });
+  }, [groups, profile, sidebarSearch, sidebarTab]);
+
   const filteredContacts = useMemo(() => {
     const q = sidebarSearch.trim().toLowerCase();
     if (!q) return contacts;
@@ -416,11 +476,13 @@ function WorkspaceApp() {
   const visibleMessages = useMemo(() => {
     if (!profile) return [];
     const q = inChatQuery.trim().toLowerCase();
-    const chatClearedAt = activeChat
-      ? (clearedAtMap[activeChat.chatId] ?? getClearedTimestamp(activeChat.chatId, profile.uid))
+    const currentList: Array<ChatMessage | GroupMessage> = activeGroup ? groupMessages : messages;
+    const conversationId = activeChat ? activeChat.chatId : activeGroup?.groupId;
+    const chatClearedAt = conversationId
+      ? (clearedAtMap[conversationId] ?? getClearedTimestamp(conversationId, profile.uid))
       : 0;
 
-    return messages.filter((m) => {
+    return currentList.filter((m) => {
       // Filter out messages deleted for this user
       if (m.deletedFor?.includes(profile.uid) || deletedMsgIds.has(m.id)) {
         return false;
@@ -428,8 +490,7 @@ function WorkspaceApp() {
       if (chatClearedAt && m.createdAt?.toMillis) {
         if (m.createdAt.toMillis() <= chatClearedAt) return false;
       }
-      const isStarred =
-        m.senderId === profile.uid ? m.starredBySender : m.starredByRecipient;
+      const isStarred = (m as ChatMessage).starredBySender || (m as ChatMessage).starredByRecipient;
       if (starredOnlyInChat && !isStarred) return false;
       if (!q) return true;
       return (
@@ -438,7 +499,7 @@ function WorkspaceApp() {
         (m.dataPacket?.payloadBody?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [messages, inChatQuery, starredOnlyInChat, profile, activeChat, clearedAtMap, deletedMsgIds]);
+  }, [messages, groupMessages, inChatQuery, starredOnlyInChat, profile, activeChat, activeGroup, clearedAtMap, deletedMsgIds]);
 
   const handleStartChatWithPerson = async (person: {
     uid: string;
@@ -449,12 +510,13 @@ function WorkspaceApp() {
     if (!profile) return;
     const chat = await ensureDirectChat(profile, person);
     setSelectedChatId(chat.chatId);
+    setSelectedGroupId(null);
     setSidebarTab('all');
   };
 
   const handleSendText = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!activeChat || !profile || !draftText.trim() || sendingMessage) return;
+    if ((!activeChat && !activeGroup) || !profile || !draftText.trim() || sendingMessage) return;
 
     const textToSend = draftText;
     const replySnapshot = replyTo;
@@ -466,13 +528,23 @@ function WorkspaceApp() {
     chatInputRef.current?.focus();
 
     try {
-      await sendChatMessage({
-        chat: activeChat,
-        me: profile,
-        kind: 'text',
-        text: textToSend,
-        replyTo: replySnapshot,
-      });
+      if (activeChat) {
+        await sendChatMessage({
+          chat: activeChat,
+          me: profile,
+          kind: 'text',
+          text: textToSend,
+          replyTo: replySnapshot,
+        });
+      } else if (activeGroup) {
+        await sendGroupMessage({
+          group: activeGroup,
+          me: profile,
+          kind: 'text',
+          text: textToSend,
+          replyTo: replySnapshot,
+        });
+      }
     } finally {
       setSendingMessage(false);
       // Ensure focus remains intact after async completion
@@ -482,12 +554,13 @@ function WorkspaceApp() {
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !activeChat || !profile) return;
+    const targetId = activeChat ? activeChat.chatId : activeGroup?.groupId;
+    if (!file || !targetId || !profile) return;
     e.target.value = '';
 
     setUploadingFile(true);
     try {
-      const downloadUrl = await uploadChatFile(file, activeChat.chatId);
+      const downloadUrl = await uploadChatFile(file, targetId);
       const mime = file.type || '';
       const fname = file.name.toLowerCase();
       const isImg = mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(fname);
@@ -495,25 +568,37 @@ function WorkspaceApp() {
       const isAud = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(fname);
       const category = isImg ? 'Image' : isVid ? 'Video' : isAud ? 'Audio' : 'File';
 
-      await sendChatMessage({
-        chat: activeChat,
-        me: profile,
-        kind: 'file_packet',
-        text: `[${category}] ${file.name}`,
-        dataPacket: {
-          title: file.name.slice(0, VALIDATION_RULES.PACKET_TITLE_MAX),
-          category,
-          fileName: file.name.slice(0, VALIDATION_RULES.PACKET_FILENAME_MAX),
-          fileMimeType: (file.type || 'application/octet-stream').slice(
-            0,
-            VALIDATION_RULES.PACKET_MIMETYPE_MAX
-          ),
-          fieldOneLabel: 'File URL',
-          fieldOneValue: downloadUrl.slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
-          fieldTwoLabel: 'Size',
-          fieldTwoValue: formatFileSize(file.size),
-        },
-      });
+      const filePacketData = {
+        title: file.name.slice(0, VALIDATION_RULES.PACKET_TITLE_MAX),
+        category,
+        fileName: file.name.slice(0, VALIDATION_RULES.PACKET_FILENAME_MAX),
+        fileMimeType: (file.type || 'application/octet-stream').slice(
+          0,
+          VALIDATION_RULES.PACKET_MIMETYPE_MAX
+        ),
+        fieldOneLabel: 'File URL',
+        fieldOneValue: downloadUrl.slice(0, VALIDATION_RULES.PACKET_VALUE_MAX),
+        fieldTwoLabel: 'Size',
+        fieldTwoValue: formatFileSize(file.size),
+      };
+
+      if (activeChat) {
+        await sendChatMessage({
+          chat: activeChat,
+          me: profile,
+          kind: 'file_packet',
+          text: `[${category}] ${file.name}`,
+          dataPacket: filePacketData,
+        });
+      } else if (activeGroup) {
+        await sendGroupMessage({
+          group: activeGroup,
+          me: profile,
+          kind: 'file_packet',
+          text: `[${category}] ${file.name}`,
+          dataPacket: filePacketData,
+        });
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'File upload failed. Please try again.');
     } finally {
@@ -606,26 +691,47 @@ function WorkspaceApp() {
     setContextMenu({ x, y, message: msg });
   };
 
-  const handleReactionClick = async (msg: ChatMessage, emoji: string) => {
-    if (!activeChat || !profile) return;
+  const handleReactionClick = async (msg: ChatMessage | GroupMessage, emoji: string) => {
+    if ((!activeChat && !activeGroup) || !profile) return;
     setContextMenu(null);
-    // Optimistic local update
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== msg.id) return m;
-        const current = { ...(m.reactions || {}) };
-        if (current[profile.uid] === emoji) {
-          delete current[profile.uid];
-        } else {
-          current[profile.uid] = emoji;
-        }
-        return { ...m, reactions: current };
-      })
-    );
-    try {
-      await toggleMessageReaction(activeChat.chatId, msg, profile.uid, emoji);
-    } catch (err) {
-      console.warn('Reaction update error:', err);
+
+    if (activeChat) {
+      // Optimistic local update
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== msg.id) return m;
+          const current = { ...(m.reactions || {}) };
+          if (current[profile.uid] === emoji) {
+            delete current[profile.uid];
+          } else {
+            current[profile.uid] = emoji;
+          }
+          return { ...m, reactions: current };
+        })
+      );
+      try {
+        await toggleMessageReaction(activeChat.chatId, msg as ChatMessage, profile.uid, emoji);
+      } catch (err) {
+        console.warn('Reaction update error:', err);
+      }
+    } else if (activeGroup) {
+      setGroupMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== msg.id) return m;
+          const current = { ...(m.reactions || {}) };
+          if (current[profile.uid] === emoji) {
+            delete current[profile.uid];
+          } else {
+            current[profile.uid] = emoji;
+          }
+          return { ...m, reactions: current };
+        })
+      );
+      try {
+        await toggleGroupMessageReaction(activeGroup.groupId, msg as GroupMessage, profile.uid, emoji);
+      } catch (err) {
+        console.warn('Group reaction update error:', err);
+      }
     }
   };
 
@@ -902,7 +1008,7 @@ function WorkspaceApp() {
         {/* LEFT PANE: Conversations & Contacts Sidebar */}
         <aside
           className={`w-full md:w-[370px] lg:w-[400px] shrink-0 border-r border-neutral-200 bg-white flex flex-col ${
-            activeChat ? 'hidden md:flex' : 'flex'
+            (activeChat || activeGroup) ? 'hidden md:flex' : 'flex'
           }`}
         >
           {/* Sidebar Header */}
@@ -929,10 +1035,19 @@ function WorkspaceApp() {
                 type="button"
                 onClick={() => setShowNewChatModal(true)}
                 title="Start New Chat"
-                className="px-3 py-2 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                className="px-2.5 py-1.5 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
               >
                 <MessageSquarePlus className="w-3.5 h-3.5" />
-                <span>New Chat</span>
+                <span className="hidden sm:inline">Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewGroupModal(true)}
+                title="Create Group with Friends"
+                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[#008069] text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Group</span>
               </button>
               <button
                 type="button"
@@ -992,11 +1107,11 @@ function WorkspaceApp() {
               )}
             </div>
 
-            <div className="grid grid-cols-4 gap-1 p-1 bg-[#F0F2F5] rounded-lg">
+            <div className="grid grid-cols-5 gap-1 p-1 bg-[#F0F2F5] rounded-lg">
               <button
                 type="button"
                 onClick={() => setSidebarTab('all')}
-                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
+                className={`py-1.5 px-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
                   sidebarTab === 'all'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -1006,19 +1121,30 @@ function WorkspaceApp() {
               </button>
               <button
                 type="button"
+                onClick={() => setSidebarTab('groups')}
+                className={`py-1.5 px-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
+                  sidebarTab === 'groups'
+                    ? 'bg-white text-[#111B21] shadow-xs'
+                    : 'text-neutral-600 hover:text-[#111B21]'
+                }`}
+              >
+                Groups ({groups.length})
+              </button>
+              <button
+                type="button"
                 onClick={() => setSidebarTab('unread')}
-                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
+                className={`py-1.5 px-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
                   sidebarTab === 'unread'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
                 }`}
               >
-                Unread ({totalUnreadChats})
+                Unread
               </button>
               <button
                 type="button"
                 onClick={() => setSidebarTab('contacts')}
-                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
+                className={`py-1.5 px-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap tabular-nums cursor-pointer text-center ${
                   sidebarTab === 'contacts'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -1029,7 +1155,7 @@ function WorkspaceApp() {
               <button
                 type="button"
                 onClick={() => setSidebarTab('settings')}
-                className={`py-1.5 px-1.5 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
+                className={`py-1.5 px-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer text-center ${
                   sidebarTab === 'settings'
                     ? 'bg-white text-[#111B21] shadow-xs'
                     : 'text-neutral-600 hover:text-[#111B21]'
@@ -1222,7 +1348,90 @@ function WorkspaceApp() {
                   </div>
                 ))
               )
-            ) : filteredChats.length === 0 ? (
+            ) : sidebarTab === 'groups' ? (
+              filteredGroups.length === 0 ? (
+                <div className="p-8 text-center space-y-3">
+                  <p className="text-sm font-semibold text-[#111B21]">No groups yet</p>
+                  <p className="text-xs text-neutral-500 leading-relaxed">
+                    Create a group with your friends and teammates to talk and share data together.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewGroupModal(true)}
+                    className="px-4 py-2 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Create Your First Group</span>
+                  </button>
+                </div>
+              ) : (
+                filteredGroups.map((group) => {
+                  const isSelected = group.groupId === selectedGroupId;
+                  const myUnread = group.unreadCounts?.[profile.uid] || 0;
+                  const isLastFromMe = group.lastSenderId === profile.uid;
+
+                  return (
+                    <button
+                      key={group.groupId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGroupId(group.groupId);
+                        setSelectedChatId(null);
+                        setReplyTo(null);
+                        setInChatSearchOpen(false);
+                        setInChatQuery('');
+                      }}
+                      className={`w-full px-4 py-3.5 flex items-center gap-3.5 text-left transition-colors cursor-pointer ${
+                        isSelected ? 'bg-[#F0F2F5]' : 'hover:bg-[#F8F9FA]'
+                      }`}
+                    >
+                      <div
+                        className="w-11 h-11 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: group.avatarColor || '#008069' }}
+                      >
+                        {group.name.slice(0, 2).toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-sm font-semibold text-[#111B21] truncate">
+                              {group.name}
+                            </p>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider shrink-0">
+                              Group
+                            </span>
+                          </div>
+                          <span
+                            className={`text-[11px] tabular-nums shrink-0 ${
+                              myUnread > 0
+                                ? 'text-[#008069] font-semibold'
+                                : 'text-neutral-500'
+                            }`}
+                          >
+                            {formatShortTime(group.updatedAt)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <p className="text-xs text-neutral-500 truncate">
+                            {group.lastMessagePreview
+                              ? `${isLastFromMe ? 'You' : group.lastSenderName}: ${group.lastMessagePreview}`
+                              : `${group.memberIds.length} members`}
+                          </p>
+
+                          {myUnread > 0 && (
+                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#00A884] text-white text-[11px] font-bold flex items-center justify-center tabular-nums shrink-0">
+                              {myUnread}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )
+            ) : (filteredChats.length === 0 && filteredGroups.length === 0) ? (
               <div className="p-8 text-center space-y-3">
                 <p className="text-sm font-semibold text-[#111B21]">
                   {sidebarTab === 'unread' ? 'All caught up' : 'No conversations yet'}
@@ -1230,78 +1439,158 @@ function WorkspaceApp() {
                 <p className="text-xs text-neutral-500 leading-relaxed">
                   {sidebarTab === 'unread'
                     ? 'You have zero unread messages across your conversations.'
-                    : 'Start a 1-to-1 chat using another person’s Google email or @handle to send messages and data.'}
+                    : 'Start a 1-to-1 chat or create a group with friends to send messages and data.'}
                 </p>
                 {sidebarTab !== 'unread' && (
-                  <button
-                    type="button"
-                    onClick={() => setShowNewChatModal(true)}
-                    className="px-4 py-2 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
-                  >
-                    Start First Chat
-                  </button>
+                  <div className="flex items-center justify-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewChatModal(true)}
+                      className="px-4 py-2 bg-[#008069] hover:bg-[#006D59] text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      Start First Chat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewGroupModal(true)}
+                      className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-[#008069] border border-emerald-300 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      + Create Group
+                    </button>
+                  </div>
                 )}
               </div>
             ) : (
-              filteredChats.map((chat) => {
-                const partner = getPartnerFromChat(chat, profile.uid, contacts);
-                const isSelected = chat.chatId === selectedChatId;
-                const isLastFromMe = chat.lastSenderId === profile.uid;
+              <>
+                {/* Render Groups section in All / Unread tab */}
+                {filteredGroups.map((group) => {
+                  const isSelected = group.groupId === selectedGroupId;
+                  const myUnread = group.unreadCounts?.[profile.uid] || 0;
+                  const isLastFromMe = group.lastSenderId === profile.uid;
 
-                return (
-                  <button
-                    key={chat.chatId}
-                    type="button"
-                    onClick={() => {
-                      setSelectedChatId(chat.chatId);
-                      setReplyTo(null);
-                      setInChatSearchOpen(false);
-                      setInChatQuery('');
-                    }}
-                    className={`w-full px-4 py-3.5 flex items-center gap-3.5 text-left transition-colors cursor-pointer ${
-                      isSelected ? 'bg-[#F0F2F5]' : 'hover:bg-[#F8F9FA]'
-                    }`}
-                  >
-                    <div
-                      className="w-11 h-11 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: partner.avatarColor }}
+                  return (
+                    <button
+                      key={group.groupId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGroupId(group.groupId);
+                        setSelectedChatId(null);
+                        setReplyTo(null);
+                        setInChatSearchOpen(false);
+                        setInChatQuery('');
+                      }}
+                      className={`w-full px-4 py-3.5 flex items-center gap-3.5 text-left transition-colors cursor-pointer border-b border-neutral-100 ${
+                        isSelected ? 'bg-[#F0F2F5]' : 'hover:bg-[#F8F9FA]'
+                      }`}
                     >
-                      {partner.displayName.slice(0, 2).toUpperCase()}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#111B21] truncate">
-                          {partner.displayName}
-                        </p>
-                        <span
-                          className={`text-[11px] tabular-nums shrink-0 ${
-                            partner.unreadCount > 0
-                              ? 'text-[#008069] font-semibold'
-                              : 'text-neutral-500'
-                          }`}
-                        >
-                          {formatShortTime(chat.updatedAt)}
-                        </span>
+                      <div
+                        className="w-11 h-11 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: group.avatarColor || '#008069' }}
+                      >
+                        {group.name.slice(0, 2).toUpperCase()}
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <p className="text-xs text-neutral-500 truncate">
-                          {chat.lastMessagePreview
-                            ? `${isLastFromMe ? 'You: ' : ''}${chat.lastMessagePreview}`
-                            : `Connected with @${partner.handle}`}
-                        </p>
-
-                        {partner.unreadCount > 0 && (
-                          <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#00A884] text-white text-[11px] font-bold flex items-center justify-center tabular-nums shrink-0">
-                            {partner.unreadCount}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-sm font-semibold text-[#111B21] truncate">
+                              {group.name}
+                            </p>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider shrink-0">
+                              Group
+                            </span>
+                          </div>
+                          <span
+                            className={`text-[11px] tabular-nums shrink-0 ${
+                              myUnread > 0
+                                ? 'text-[#008069] font-semibold'
+                                : 'text-neutral-500'
+                            }`}
+                          >
+                            {formatShortTime(group.updatedAt)}
                           </span>
-                        )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <p className="text-xs text-neutral-500 truncate">
+                            {group.lastMessagePreview
+                              ? `${isLastFromMe ? 'You' : group.lastSenderName}: ${group.lastMessagePreview}`
+                              : `${group.memberIds.length} members`}
+                          </p>
+
+                          {myUnread > 0 && (
+                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#00A884] text-white text-[11px] font-bold flex items-center justify-center tabular-nums shrink-0">
+                              {myUnread}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })
+                    </button>
+                  );
+                })}
+
+                {/* Render Direct Chats */}
+                {filteredChats.map((chat) => {
+                  const partner = getPartnerFromChat(chat, profile.uid, contacts);
+                  const isSelected = chat.chatId === selectedChatId;
+                  const isLastFromMe = chat.lastSenderId === profile.uid;
+
+                  return (
+                    <button
+                      key={chat.chatId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedChatId(chat.chatId);
+                        setSelectedGroupId(null);
+                        setReplyTo(null);
+                        setInChatSearchOpen(false);
+                        setInChatQuery('');
+                      }}
+                      className={`w-full px-4 py-3.5 flex items-center gap-3.5 text-left transition-colors cursor-pointer ${
+                        isSelected ? 'bg-[#F0F2F5]' : 'hover:bg-[#F8F9FA]'
+                      }`}
+                    >
+                      <div
+                        className="w-11 h-11 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: partner.avatarColor }}
+                      >
+                        {partner.displayName.slice(0, 2).toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="text-sm font-semibold text-[#111B21] truncate">
+                            {partner.displayName}
+                          </p>
+                          <span
+                            className={`text-[11px] tabular-nums shrink-0 ${
+                              partner.unreadCount > 0
+                                ? 'text-[#008069] font-semibold'
+                                : 'text-neutral-500'
+                            }`}
+                          >
+                            {formatShortTime(chat.updatedAt)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <p className="text-xs text-neutral-500 truncate">
+                            {chat.lastMessagePreview
+                              ? `${isLastFromMe ? 'You: ' : ''}${chat.lastMessagePreview}`
+                              : `Connected with @${partner.handle}`}
+                          </p>
+
+                          {partner.unreadCount > 0 && (
+                            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[#00A884] text-white text-[11px] font-bold flex items-center justify-center tabular-nums shrink-0">
+                              {partner.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </>
             )}
           </div>
 
@@ -1326,15 +1615,19 @@ function WorkspaceApp() {
         {/* RIGHT PANE: Active Conversation or Welcome Canvas */}
         <main
           className={`flex-1 flex flex-col bg-[#EFEAE2] min-w-0 ${
-            activeChat ? 'flex' : 'hidden md:flex'
+            (activeChat || activeGroup) ? 'flex' : 'hidden md:flex'
           }`}
         >
-          {!activeChat || !activePartner ? (
+          {(!activeChat && !activeGroup) ? (
             /* Empty Workspace State - clicking anywhere directs directly to messages */
             <div
               onClick={() => {
                 if (chats.length > 0) {
                   setSelectedChatId(chats[0].chatId);
+                  setSelectedGroupId(null);
+                } else if (groups.length > 0) {
+                  setSelectedGroupId(groups[0].groupId);
+                  setSelectedChatId(null);
                 } else {
                   setShowNewChatModal(true);
                 }
@@ -1439,15 +1732,18 @@ function WorkspaceApp() {
               </div>
             </div>
           ) : (
-            /* Active Chat Window */
+            /* Active Chat or Group Window */
             <>
-              {/* Active Chat Header */}
+              {/* Active Header */}
               <div className="px-4 sm:px-6 py-3 bg-[#F0F2F5] border-b border-neutral-200 flex items-center justify-between gap-4 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     type="button"
-                    onClick={() => setSelectedChatId(null)}
-                    aria-label="Back to chat list"
+                    onClick={() => {
+                      setSelectedChatId(null);
+                      setSelectedGroupId(null);
+                    }}
+                    aria-label="Back to conversations"
                     className="md:hidden p-2 -ml-2 text-neutral-700 hover:bg-neutral-200 rounded-lg cursor-pointer"
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -1455,23 +1751,27 @@ function WorkspaceApp() {
 
                   <div
                     className="w-10 h-10 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: activePartner.avatarColor }}
+                    style={{ backgroundColor: activeGroup ? (activeGroup.avatarColor || '#008069') : (activePartner?.avatarColor || '#008069') }}
                   >
-                    {activePartner.displayName.slice(0, 2).toUpperCase()}
+                    {activeGroup
+                      ? activeGroup.name.slice(0, 2).toUpperCase()
+                      : (activePartner?.displayName || 'User').slice(0, 2).toUpperCase()}
                   </div>
 
                   <div className="min-w-0">
                     <h2 className="text-sm font-bold text-[#111B21] truncate">
-                      {activePartner.displayName}
+                      {activeGroup ? activeGroup.name : activePartner?.displayName}
                     </h2>
                     <p className="text-xs text-neutral-500 truncate">
-                      @{activePartner.handle} · Direct Conversation
+                      {activeGroup
+                        ? `${activeGroup.memberIds.length} members · Group`
+                        : `@${activePartner?.handle} · Direct Conversation`}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {!activePartner.isSavedContact && (
+                  {activePartner && !activePartner.isSavedContact && (
                     <button
                       type="button"
                       onClick={handleQuickSavePartner}
@@ -1588,7 +1888,7 @@ function WorkspaceApp() {
                     <p className="text-xs font-semibold text-[#111B21]">
                       {inChatQuery || starredOnlyInChat
                         ? 'No matching messages in this conversation'
-                        : `Start messaging ${activePartner.displayName}`}
+                        : `Start messaging ${activeGroup ? activeGroup.name : (activePartner?.displayName || 'Chat')}`}
                     </p>
                     <p className="text-xs text-neutral-500 leading-relaxed">
                       {inChatQuery || starredOnlyInChat
@@ -1599,7 +1899,7 @@ function WorkspaceApp() {
                 ) : (
                   visibleMessages.map((msg) => {
                     const isMine = msg.senderId === profile.uid;
-                    const isStarred = isMine ? msg.starredBySender : msg.starredByRecipient;
+                    const isStarred = isMine ? (msg as ChatMessage).starredBySender : (msg as ChatMessage).starredByRecipient;
 
                     return (
                       <div
@@ -1607,7 +1907,7 @@ function WorkspaceApp() {
                         className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}
                       >
                         <div
-                          onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                          onContextMenu={(e) => handleMessageContextMenu(e, msg as ChatMessage)}
                           className={`relative max-w-[88%] sm:max-w-[72%] rounded-xl px-3.5 py-2.5 border transition-shadow cursor-default select-text ${
                             msg.isDeletedForEveryone
                               ? 'bg-neutral-100/90 border-neutral-200 text-neutral-500'
@@ -1616,6 +1916,21 @@ function WorkspaceApp() {
                                 : 'bg-white border-neutral-200/90 text-[#111B21]'
                           }`}
                         >
+                          {/* Group sender name for incoming group messages */}
+                          {activeGroup && !isMine && !msg.isDeletedForEveryone && (
+                            <p
+                              className="text-xs font-bold mb-1 truncate"
+                              style={{
+                                color:
+                                  (msg as GroupMessage).senderColor ||
+                                  activeGroup.memberColors?.[msg.senderId] ||
+                                  '#008069',
+                              }}
+                            >
+                              {(msg as GroupMessage).senderName || activeGroup.memberNames?.[msg.senderId] || 'Member'}
+                            </p>
+                          )}
+
                           {/* Quoted Reply Box (clean all-around border, zero thick left stripe) */}
                           {!msg.isDeletedForEveryone && msg.replyToText && (
                             <div className="mb-2 px-2.5 py-1.5 rounded-md bg-black/5 border border-black/10 text-xs">
@@ -1874,6 +2189,20 @@ function WorkspaceApp() {
         />
       )}
 
+      {showNewGroupModal && (
+        <NewGroupModal
+          me={profile}
+          contacts={contacts}
+          directory={[]}
+          onClose={() => setShowNewGroupModal(false)}
+          onGroupCreated={(groupId) => {
+            setSelectedGroupId(groupId);
+            setSelectedChatId(null);
+            setSidebarTab('all');
+          }}
+        />
+      )}
+
       {showProfileDrawer && (
         <ProfileDrawer
           profile={profile}
@@ -1884,19 +2213,30 @@ function WorkspaceApp() {
         />
       )}
 
-      {showDataComposer && activeChat && activePartner && (
+      {showDataComposer && (activeChat || activeGroup) && (
         <DataComposerModal
-          partnerName={activePartner.displayName}
+          partnerName={activeGroup ? activeGroup.name : (activePartner?.displayName || 'Chat')}
           onClose={() => setShowDataComposer(false)}
           onSendPacket={async ({ kind, text, dataPacket }) => {
-            await sendChatMessage({
-              chat: activeChat,
-              me: profile,
-              kind,
-              text,
-              replyTo,
-              dataPacket,
-            });
+            if (activeChat) {
+              await sendChatMessage({
+                chat: activeChat,
+                me: profile,
+                kind,
+                text,
+                replyTo,
+                dataPacket,
+              });
+            } else if (activeGroup) {
+              await sendGroupMessage({
+                group: activeGroup,
+                me: profile,
+                kind,
+                text,
+                replyTo,
+                dataPacket,
+              });
+            }
             setReplyTo(null);
           }}
         />
