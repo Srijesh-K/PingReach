@@ -27,6 +27,9 @@ export const VALIDATION_RULES = {
   PACKET_FILENAME_MAX: 120,
   PACKET_MIMETYPE_MAX: 80,
   PACKET_PAYLOAD_MAX: 3500,
+  GROUP_NAME_MAX: 60,
+  GROUP_DESC_MAX: 200,
+  GROUP_MEMBERS_MAX: 100,
 } as const;
 
 export const AVATAR_PALETTE = [
@@ -130,6 +133,44 @@ export interface ChatMessage {
   deliveryStatus: DeliveryStatus;
   starredBySender: boolean;
   starredByRecipient: boolean;
+  replyToText?: string;
+  replyToSender?: string;
+  dataPacket?: DataPacket;
+  reactions?: Record<string, string>;
+  deletedFor?: string[];
+  isDeletedForEveryone?: boolean;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface GroupChat {
+  groupId: string;
+  name: string;
+  description: string;
+  avatarColor: string;
+  createdBy: string;
+  createdByName: string;
+  memberIds: string[];
+  memberNames: Record<string, string>;
+  memberHandles: Record<string, string>;
+  memberColors: Record<string, string>;
+  lastMessagePreview: string;
+  lastMessageKind: ChatSummaryKind;
+  lastSenderId: string;
+  lastSenderName: string;
+  unreadCounts: Record<string, number>;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface GroupMessage {
+  id: string;
+  groupId: string;
+  senderId: string;
+  senderName: string;
+  senderColor: string;
+  kind: MessageKind;
+  text: string;
   replyToText?: string;
   replyToSender?: string;
   dataPacket?: DataPacket;
