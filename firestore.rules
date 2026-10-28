@@ -621,22 +621,22 @@ service cloud.firestore {
     // 8. Group Chats
     // -------------------------------------------------------------------------
     match /groups/{groupId} {
-      allow get: if isVerified() && isValidId(groupId) && (request.auth.uid in resource.data.memberIds);
-      allow list: if isVerified() && (request.auth.uid in resource.data.memberIds);
+      allow get: if isVerified() && isValidId(groupId) && resource.data.memberIds.hasAny([request.auth.uid]);
+      allow list: if isVerified() && resource.data.memberIds.hasAny([request.auth.uid]);
 
       allow create: if isVerified() &&
         isValidId(groupId) &&
         isValidGroupChat(incoming()) &&
         incoming().groupId == groupId &&
         incoming().createdBy == request.auth.uid &&
-        (request.auth.uid in incoming().memberIds) &&
+        incoming().memberIds.hasAny([request.auth.uid]) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
       allow update: if isValidGroupChat(incoming()) &&
         isVerified() &&
         isValidId(groupId) &&
-        (request.auth.uid in existing().memberIds) &&
+        existing().memberIds.hasAny([request.auth.uid]) &&
         incoming().groupId == existing().groupId &&
         incoming().createdBy == existing().createdBy &&
         incoming().createdAt == existing().createdAt &&
@@ -649,7 +649,7 @@ service cloud.firestore {
         allow get, list: if isVerified() &&
           isValidId(groupId) &&
           isValidId(messageId) &&
-          (request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds);
+          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]);
 
         allow create: if isVerified() &&
           isValidId(groupId) &&
@@ -659,13 +659,13 @@ service cloud.firestore {
           incoming().senderId == request.auth.uid &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
-          (request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds);
+          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]);
 
         allow update: if isValidGroupMessage(incoming()) &&
           isVerified() &&
           isValidId(groupId) &&
           isValidId(messageId) &&
-          (request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds) &&
+          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]) &&
           incoming().groupId == existing().groupId &&
           incoming().senderId == existing().senderId &&
           incoming().createdAt == existing().createdAt &&
