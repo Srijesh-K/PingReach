@@ -405,7 +405,7 @@ export function subscribeToContacts(
       onContacts(list);
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToContacts error:', error);
     }
   );
 }
@@ -508,7 +508,7 @@ export function subscribeToMyChats(
       emitMerged();
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToDirectChats (userOne) error:', error);
     }
   );
 
@@ -523,7 +523,7 @@ export function subscribeToMyChats(
       emitMerged();
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToDirectChats (userTwo) error:', error);
     }
   );
 
@@ -575,7 +575,7 @@ export function subscribeToChatMessages(
       emitMerged();
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToChatMessages (sent) error:', error);
     }
   );
 
@@ -592,7 +592,7 @@ export function subscribeToChatMessages(
       emitMerged();
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToChatMessages (received) error:', error);
     }
   );
 
@@ -1023,7 +1023,7 @@ export function subscribeToGroupMessages(
       onMessages(list);
     },
     (error) => {
-      console.warn('subscribeToMyGroups error:', error);
+      console.warn('subscribeToGroupMessages error:', error);
     }
   );
 }
