@@ -2080,7 +2080,7 @@ function WorkspaceApp() {
 
                             <span className="tabular-nums">{formatBubbleTime(msg.createdAt)}</span>
 
-                            {isMine && (
+                            {isMine && 'deliveryStatus' in msg && (
                               <span
                                 className="inline-flex items-center gap-0.5"
                                 title={msg.deliveryStatus === 'read' ? 'Read' : 'Sent'}
