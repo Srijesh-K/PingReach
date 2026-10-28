@@ -692,6 +692,46 @@ service cloud.firestore {
         allow delete: if false;
       }
     }
+
+    // -------------------------------------------------------------------------
+    // 9. Real-Time WebRTC Audio & Video Calls
+    // -------------------------------------------------------------------------
+    match /calls/{callId} {
+      function isCallParticipant() {
+        return isSignedIn() && (
+          resource.data.callerId == request.auth.uid ||
+          resource.data.receiverId == request.auth.uid
+        );
+      }
+
+      function isParentCallParticipant() {
+        return isSignedIn() && (
+          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid
+        );
+      }
+
+      allow get: if isCallParticipant();
+      allow list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.callerId == request.auth.uid &&
+        request.resource.data.receiverId != request.auth.uid &&
+        request.resource.data.callType in ['audio', 'video'];
+
+      allow update: if isCallParticipant();
+      allow delete: if isCallParticipant();
+
+      // WebRTC ICE Candidate Subcollections
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isParentCallParticipant();
+      }
+
+      match /receiverCandidates/{candidateId} {
+        allow read, write: if isParentCallParticipant();
+      }
+    }
   }
 }
+
 
