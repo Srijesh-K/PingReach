@@ -405,7 +405,7 @@ export function subscribeToContacts(
       onContacts(list);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 }
@@ -508,7 +508,7 @@ export function subscribeToMyChats(
       emitMerged();
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 
@@ -523,7 +523,7 @@ export function subscribeToMyChats(
       emitMerged();
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 
@@ -575,7 +575,7 @@ export function subscribeToChatMessages(
       emitMerged();
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 
@@ -592,7 +592,7 @@ export function subscribeToChatMessages(
       emitMerged();
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 
@@ -993,7 +993,7 @@ export function subscribeToMyGroups(
       onGroups(list);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 }
@@ -1023,7 +1023,7 @@ export function subscribeToGroupMessages(
       onMessages(list);
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      console.warn('subscribeToMyGroups error:', error);
     }
   );
 }
