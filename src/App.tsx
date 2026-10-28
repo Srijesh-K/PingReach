@@ -22,6 +22,7 @@ import {
   Info,
   Loader2,
   Paperclip,
+  Phone,
   Plus,
   RefreshCw,
   Reply,
@@ -36,6 +37,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  Video,
   X,
 } from 'lucide-react';
 import { auth } from './firebase';
@@ -47,6 +49,10 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { NewChatModal } from './components/NewChatModal';
 import { NewGroupModal } from './components/NewGroupModal';
 import { ProfileDrawer } from './components/ProfileDrawer';
+import { IncomingCallModal } from './components/IncomingCallModal';
+import { ActiveCallOverlay } from './components/ActiveCallOverlay';
+import { webrtcService } from './services/webrtcService';
+import type { ActiveCallState, CallRecord, CallType } from './types/call';
 import {
   deleteGroupMessageForEveryone,
   deleteGroupMessageForMe,
@@ -220,6 +226,10 @@ function WorkspaceApp() {
   const [verificationSent, setVerificationSent] = useState(false);
   const [emptyImgBroken, setEmptyImgBroken] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+
+  // WebRTC Audio & Video Calling States
+  const [activeCallState, setActiveCallState] = useState<ActiveCallState | null>(null);
+  const [incomingCall, setIncomingCall] = useState<CallRecord | null>(null);
 
   // Chat Actions Menu & Toast
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
@@ -411,6 +421,31 @@ function WorkspaceApp() {
     () => groups.find((g) => g.groupId === selectedGroupId) || null,
     [groups, selectedGroupId]
   );
+
+  const activePartner = useMemo(
+    () => (activeChat && profile ? getPartnerFromChat(activeChat, profile.uid, contacts) : null),
+    [activeChat, profile, contacts]
+  );
+
+  // 4. Listen to WebRTC Call State & Incoming Calls
+  useEffect(() => {
+    const unsub = webrtcService.subscribeCallState((state) => {
+      setActiveCallState(state);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.uid || needsVerification) return;
+    const unsub = webrtcService.listenForIncomingCalls(profile.uid, (call) => {
+      if (webrtcService.getCurrentState()) {
+        webrtcService.declineCall(call.id, 'busy');
+        return;
+      }
+      setIncomingCall(call);
+    });
+    return unsub;
+  }, [profile?.uid, needsVerification]);
 
   // 4. Mark unread incoming messages as read when viewing activeChat or activeGroup
   useEffect(() => {
@@ -883,6 +918,47 @@ function WorkspaceApp() {
     });
   };
 
+  // WebRTC Audio & Video Calling Handlers
+  const handleStartCall = async (callType: CallType) => {
+    if (!activePartner || !profile) return;
+    try {
+      await webrtcService.startCall({
+        receiverId: activePartner.uid,
+        receiverName: activePartner.displayName,
+        receiverHandle: activePartner.handle,
+        receiverAvatarColor: activePartner.avatarColor,
+        callType,
+        chatId: activeChat?.chatId,
+      });
+    } catch (err) {
+      console.error('Failed to start call:', err);
+      showToast(err instanceof Error ? err.message : 'Could not start call. Check microphone/camera permissions.');
+    }
+  };
+
+  const handleAcceptIncomingCall = async () => {
+    if (!incomingCall) return;
+    const call = incomingCall;
+    setIncomingCall(null);
+    try {
+      await webrtcService.acceptCall(call);
+    } catch (err) {
+      console.error('Failed to accept call:', err);
+      showToast('Could not establish call connection');
+    }
+  };
+
+  const handleDeclineIncomingCall = async () => {
+    if (!incomingCall) return;
+    const callId = incomingCall.id;
+    setIncomingCall(null);
+    await webrtcService.declineCall(callId, 'user_declined');
+  };
+
+  const handleEndActiveCall = async () => {
+    await webrtcService.endCall('user_hungup');
+  };
+
   // Priority Route: /admin (accessible with passcode admin@123)
   if (currentRoute === '/admin') {
     return (
@@ -989,10 +1065,6 @@ function WorkspaceApp() {
   if (!profile || !privateInfo) {
     return null;
   }
-
-  const activePartner = activeChat
-    ? getPartnerFromChat(activeChat, profile.uid, contacts)
-    : null;
 
   const totalUnreadChats = chats.reduce((acc, chat) => {
     const count =
@@ -1799,6 +1871,30 @@ function WorkspaceApp() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {/* WebRTC Voice & Video Call Buttons (Direct Conversation) */}
+                  {activePartner && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleStartCall('audio')}
+                        title="Start Voice Call"
+                        aria-label="Start Voice Call"
+                        className="p-2 text-neutral-600 hover:text-[#008069] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleStartCall('video')}
+                        title="Start Video Call"
+                        aria-label="Start Video Call"
+                        className="p-2 text-neutral-600 hover:text-[#008069] hover:bg-neutral-200/70 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Video className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+
                   {activePartner && !activePartner.isSavedContact && (
                     <button
                       type="button"
@@ -2475,6 +2571,23 @@ function WorkspaceApp() {
           <Check className="w-3.5 h-3.5 text-[#00A884]" />
           <span>{toastNotice}</span>
         </div>
+      )}
+
+      {/* WebRTC Incoming Call Dialog */}
+      {incomingCall && (
+        <IncomingCallModal
+          incomingCall={incomingCall}
+          onAccept={handleAcceptIncomingCall}
+          onDecline={handleDeclineIncomingCall}
+        />
+      )}
+
+      {/* WebRTC Active Call Stage & Overlay */}
+      {activeCallState && (
+        <ActiveCallOverlay
+          callState={activeCallState}
+          onEndCall={handleEndActiveCall}
+        />
       )}
     </div>
   );
