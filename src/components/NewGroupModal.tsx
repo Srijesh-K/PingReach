@@ -101,7 +101,15 @@ export function NewGroupModal({
       onGroupCreated(groupId);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create group. Please try again.');
+      console.error('Group creation failed:', err);
+      const isPerm = err instanceof Error && err.message.includes('Missing or insufficient permissions');
+      setError(
+        isPerm
+          ? 'Firestore Permission Denied: Please publish the updated firestore.rules in your Firebase Console so the groups collection is allowed.'
+          : err instanceof Error
+            ? err.message
+            : 'Failed to create group. Please try again.'
+      );
     } finally {
       setCreating(false);
     }
