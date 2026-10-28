@@ -48,6 +48,8 @@ import { NewChatModal } from './components/NewChatModal';
 import { NewGroupModal } from './components/NewGroupModal';
 import { ProfileDrawer } from './components/ProfileDrawer';
 import {
+  deleteGroupMessageForEveryone,
+  deleteGroupMessageForMe,
   deleteMessageForEveryone,
   deleteMessageForMe,
   deleteSavedContact,
@@ -237,7 +239,7 @@ function WorkspaceApp() {
   };
 
   const [deleteTarget, setDeleteTarget] = useState<{
-    message: ChatMessage;
+    message: ChatMessage | GroupMessage;
     mode: 'me' | 'everyone';
   } | null>(null);
   const [deletedMsgIds, setDeletedMsgIds] = useState<Set<string>>(new Set());
@@ -283,7 +285,7 @@ function WorkspaceApp() {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    message: ChatMessage;
+    message: ChatMessage | GroupMessage;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -609,7 +611,7 @@ function WorkspaceApp() {
 
   const handleExportChat = () => {
     setChatMenuOpen(false);
-    if (!activeChat || !activePartner) return;
+    if ((!activeChat || !activePartner) && !activeGroup) return;
     if (visibleMessages.length === 0) {
       showToast('No messages to export');
       return;
@@ -618,11 +620,12 @@ function WorkspaceApp() {
     const exportDate = new Date();
     const dateFormatted = exportDate.toLocaleString();
     const myName = profile?.displayName || 'You';
-    const partnerName = activePartner.displayName;
+    const partnerName = activeGroup ? activeGroup.name : (activePartner?.displayName || 'Chat');
+    const partnerHandle = activeGroup ? `${activeGroup.memberIds.length} members` : `@${activePartner?.handle || 'user'}`;
 
     const header = [
       `======================================================================`,
-      `PingReach Chat Export: ${partnerName} (@${activePartner.handle})`,
+      `PingReach Export: ${partnerName} (${partnerHandle})`,
       `Exported by: ${myName} (@${profile?.handle})`,
       `Exported on: ${dateFormatted}`,
       `Total Messages: ${visibleMessages.length}`,
@@ -632,7 +635,7 @@ function WorkspaceApp() {
 
     const body = visibleMessages.map((m) => {
       const isMine = m.senderId === profile?.uid;
-      const sender = isMine ? myName : partnerName;
+      const sender = isMine ? myName : (activeGroup ? (m as GroupMessage).senderName || 'Member' : partnerName);
       const time = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : 'Recent';
 
       if (m.isDeletedForEveryone) {
@@ -654,7 +657,7 @@ function WorkspaceApp() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const safePartner = activePartner.handle.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safePartner = (activeGroup ? activeGroup.name : (activePartner?.handle || 'chat')).replace(/[^a-zA-Z0-9_-]/g, '_');
     const fileDate = exportDate.toISOString().slice(0, 10);
     a.download = `Chat_with_${safePartner}_${fileDate}.txt`;
     document.body.appendChild(a);
@@ -666,22 +669,23 @@ function WorkspaceApp() {
   };
 
   const handleConfirmClearChat = () => {
-    if (!activeChat || !profile) return;
+    const targetId = activeChat ? activeChat.chatId : activeGroup?.groupId;
+    if (!targetId || !profile) return;
     const now = Date.now();
     try {
-      localStorage.setItem(`pingreach_cleared_${activeChat.chatId}_${profile.uid}`, now.toString());
+      localStorage.setItem(`pingreach_cleared_${targetId}_${profile.uid}`, now.toString());
     } catch (e) {
       console.warn('Failed saving clear chat timestamp', e);
     }
     setClearedAtMap((prev) => ({
       ...prev,
-      [activeChat.chatId]: now,
+      [targetId]: now,
     }));
     setShowClearModal(false);
     showToast('Chat cleared');
   };
 
-  const handleMessageContextMenu = (e: React.MouseEvent, msg: ChatMessage) => {
+  const handleMessageContextMenu = (e: React.MouseEvent, msg: ChatMessage | GroupMessage) => {
     e.preventDefault();
     e.stopPropagation();
     const menuWidth = 240;
@@ -754,28 +758,52 @@ function WorkspaceApp() {
       }
       showToast('Message deleted for you');
       try {
-        await deleteMessageForMe(activeChat.chatId, message, profile.uid);
+        if (activeChat) {
+          await deleteMessageForMe(activeChat.chatId, message as ChatMessage, profile.uid);
+        } else if (activeGroup) {
+          await deleteGroupMessageForMe(activeGroup.groupId, message as GroupMessage, profile.uid);
+        }
       } catch (err) {
         console.warn('Could not sync delete for me to firestore', err);
       }
     } else {
       // mode === 'everyone'
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === message.id
-            ? {
-                ...m,
-                isDeletedForEveryone: true,
-                text: 'This message was deleted',
-                reactions: {},
-                dataPacket: undefined,
-              }
-            : m
-        )
-      );
+      if (activeChat) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...m,
+                  isDeletedForEveryone: true,
+                  text: 'This message was deleted',
+                  reactions: {},
+                  dataPacket: undefined,
+                }
+              : m
+          )
+        );
+      } else if (activeGroup) {
+        setGroupMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...m,
+                  isDeletedForEveryone: true,
+                  text: 'This message was deleted',
+                  reactions: {},
+                  dataPacket: undefined,
+                }
+              : m
+          )
+        );
+      }
       showToast('Message deleted for everyone');
       try {
-        await deleteMessageForEveryone(activeChat.chatId, message, profile.uid);
+        if (activeChat) {
+          await deleteMessageForEveryone(activeChat.chatId, message as ChatMessage, profile.uid);
+        } else if (activeGroup) {
+          await deleteGroupMessageForEveryone(activeGroup.groupId, message as GroupMessage, profile.uid);
+        }
       } catch (err) {
         console.warn('Failed to delete for everyone in firestore', err);
       }
@@ -2019,7 +2047,11 @@ function WorkspaceApp() {
                                   onClick={() =>
                                     setReplyTo({
                                       text: msg.text,
-                                      senderName: isMine ? 'You' : activePartner.displayName,
+                                      senderName: isMine
+                                        ? 'You'
+                                        : activeGroup
+                                          ? (msg as GroupMessage).senderName || 'Member'
+                                          : activePartner?.displayName || 'User',
                                     })
                                   }
                                   title="Reply"
@@ -2029,18 +2061,20 @@ function WorkspaceApp() {
                                   <span>Reply</span>
                                 </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => toggleMessageStar(activeChat.chatId, msg, profile.uid)}
-                                  title={isStarred ? 'Unstar message' : 'Star message'}
-                                  className={`transition-opacity cursor-pointer ${
-                                    isStarred
-                                      ? 'text-amber-600 opacity-100'
-                                      : 'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-amber-600'
-                                  }`}
-                                >
-                                  <Star className="w-3 h-3 fill-current" />
-                                </button>
+                                {activeChat && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleMessageStar(activeChat.chatId, msg as ChatMessage, profile.uid)}
+                                    title={isStarred ? 'Unstar message' : 'Star message'}
+                                    className={`transition-opacity cursor-pointer ${
+                                      isStarred
+                                        ? 'text-amber-600 opacity-100'
+                                        : 'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-amber-600'
+                                    }`}
+                                  >
+                                    <Star className="w-3 h-3 fill-current" />
+                                  </button>
+                                )}
                               </>
                             )}
 
@@ -2149,7 +2183,7 @@ function WorkspaceApp() {
                       }
                     }
                   }}
-                  placeholder={`Message ${activePartner.displayName}...`}
+                  placeholder={`Message ${activeGroup ? activeGroup.name : (activePartner?.displayName || 'Chat')}...`}
                   className="flex-1 max-h-32 px-4 py-2.5 text-sm bg-white border border-neutral-300 rounded-lg resize-none focus:outline-none focus:border-[#008069]"
                 />
 
@@ -2242,7 +2276,7 @@ function WorkspaceApp() {
         />
       )}
       {/* Right Click Message Context Menu */}
-      {contextMenu && activePartner && profile && (
+      {contextMenu && (activePartner || activeGroup) && profile && (
         <div
           ref={contextMenuRef}
           style={{ top: contextMenu.y, left: contextMenu.x }}
@@ -2279,7 +2313,9 @@ function WorkspaceApp() {
                 senderName:
                   contextMenu.message.senderId === profile.uid
                     ? 'You'
-                    : activePartner.displayName,
+                    : activeGroup
+                      ? (contextMenu.message as GroupMessage).senderName || 'Member'
+                      : activePartner?.displayName || 'User',
               });
               setContextMenu(null);
             }}
@@ -2302,25 +2338,27 @@ function WorkspaceApp() {
             <span>Copy Text</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (activeChat) {
-                toggleMessageStar(activeChat.chatId, contextMenu.message, profile.uid);
-              }
-              setContextMenu(null);
-            }}
-            className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
-          >
-            <Star className="w-4 h-4 text-neutral-500" />
-            <span>
-              {(contextMenu.message.senderId === profile.uid
-                ? contextMenu.message.starredBySender
-                : contextMenu.message.starredByRecipient)
-                ? 'Unstar Message'
-                : 'Star Message'}
-            </span>
-          </button>
+          {activeChat && (
+            <button
+              type="button"
+              onClick={() => {
+                if (activeChat) {
+                  toggleMessageStar(activeChat.chatId, contextMenu.message as ChatMessage, profile.uid);
+                }
+                setContextMenu(null);
+              }}
+              className="w-full px-3.5 py-2 text-left text-neutral-700 hover:bg-[#F5F6F6] flex items-center gap-2.5 cursor-pointer transition-colors"
+            >
+              <Star className="w-4 h-4 text-neutral-500" />
+              <span>
+                {(contextMenu.message.senderId === profile.uid
+                  ? (contextMenu.message as ChatMessage).starredBySender
+                  : (contextMenu.message as ChatMessage).starredByRecipient)
+                  ? 'Unstar Message'
+                  : 'Star Message'}
+              </span>
+            </button>
+          )}
 
           <div className="my-1 border-t border-neutral-100" />
 
@@ -2396,7 +2434,7 @@ function WorkspaceApp() {
       )}
 
       {/* Clear Chat Confirmation Modal */}
-      {showClearModal && activePartner && (
+      {showClearModal && (activePartner || activeGroup) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-neutral-200 space-y-4">
             <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
@@ -2406,7 +2444,7 @@ function WorkspaceApp() {
               <h3 className="text-base font-bold text-[#111B21]">Clear this chat?</h3>
               <p className="mt-1 text-xs text-neutral-500 leading-relaxed">
                 Are you sure you want to clear messages in this chat with{' '}
-                <span className="font-semibold text-[#111B21]">{activePartner.displayName}</span>?
+                <span className="font-semibold text-[#111B21]">{activeGroup ? activeGroup.name : activePartner?.displayName}</span>?
                 This will remove all current messages from your view.
               </p>
             </div>
