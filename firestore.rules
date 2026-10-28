@@ -289,6 +289,14 @@ service cloud.firestore {
       );
     }
 
+    function isParentGroupMember(groupId, actorUid) {
+      let groupDoc = get(/databases/$(database)/documents/groups/$(groupId));
+      return groupDoc != null && (
+        actorUid in groupDoc.data.memberIds ||
+        groupDoc.data.memberIds.hasAny([actorUid])
+      );
+    }
+
     // -------------------------------------------------------------------------
     // 1. User Public Profile (Split Collection — Non-PII)
     // -------------------------------------------------------------------------
@@ -621,22 +629,28 @@ service cloud.firestore {
     // 8. Group Chats
     // -------------------------------------------------------------------------
     match /groups/{groupId} {
-      allow get: if isVerified() && isValidId(groupId) && resource.data.memberIds.hasAny([request.auth.uid]);
-      allow list: if isVerified() && resource.data.memberIds.hasAny([request.auth.uid]);
+      allow get: if isVerified() && isValidId(groupId) && (
+        resource.data.memberIds.hasAny([request.auth.uid]) ||
+        request.auth.uid in resource.data.memberIds
+      );
+      allow list: if isVerified() && (
+        resource.data.memberIds.hasAny([request.auth.uid]) ||
+        request.auth.uid in resource.data.memberIds
+      );
 
       allow create: if isVerified() &&
         isValidId(groupId) &&
         isValidGroupChat(incoming()) &&
         incoming().groupId == groupId &&
         incoming().createdBy == request.auth.uid &&
-        incoming().memberIds.hasAny([request.auth.uid]) &&
+        (incoming().memberIds.hasAny([request.auth.uid]) || request.auth.uid in incoming().memberIds) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
       allow update: if isValidGroupChat(incoming()) &&
         isVerified() &&
         isValidId(groupId) &&
-        existing().memberIds.hasAny([request.auth.uid]) &&
+        (existing().memberIds.hasAny([request.auth.uid]) || request.auth.uid in existing().memberIds) &&
         incoming().groupId == existing().groupId &&
         incoming().createdBy == existing().createdBy &&
         incoming().createdAt == existing().createdAt &&
@@ -646,10 +660,14 @@ service cloud.firestore {
 
       // Group Messages Subcollection
       match /messages/{messageId} {
-        allow get, list: if isVerified() &&
+        allow get: if isVerified() &&
           isValidId(groupId) &&
           isValidId(messageId) &&
-          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]);
+          isParentGroupMember(groupId, request.auth.uid);
+
+        allow list: if isVerified() &&
+          isValidId(groupId) &&
+          isParentGroupMember(groupId, request.auth.uid);
 
         allow create: if isVerified() &&
           isValidId(groupId) &&
@@ -659,13 +677,13 @@ service cloud.firestore {
           incoming().senderId == request.auth.uid &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
-          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]);
+          isParentGroupMember(groupId, request.auth.uid);
 
         allow update: if isValidGroupMessage(incoming()) &&
           isVerified() &&
           isValidId(groupId) &&
           isValidId(messageId) &&
-          get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds.hasAny([request.auth.uid]) &&
+          isParentGroupMember(groupId, request.auth.uid) &&
           incoming().groupId == existing().groupId &&
           incoming().senderId == existing().senderId &&
           incoming().createdAt == existing().createdAt &&
