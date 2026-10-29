@@ -190,10 +190,17 @@ class WebRtcService {
     // Play outgoing ringtone
     soundService.playOutgoingRing();
 
-    // 4. Gather ICE candidates
+    // 4. Gather ICE candidates (buffer candidates until call doc is created in Firestore)
     const callerCandidatesCol = collection(db, 'calls', callId, 'callerCandidates');
+    const pendingCallerCandidates: RTCIceCandidate[] = [];
+    let isCallDocCreated = false;
+
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        if (!isCallDocCreated) {
+          pendingCallerCandidates.push(event.candidate);
+          return;
+        }
         addDoc(callerCandidatesCol, {
           candidate: event.candidate.candidate,
           sdpMid: event.candidate.sdpMid,
@@ -241,7 +248,26 @@ class WebRtcService {
       updatedAt: serverTimestamp(),
     };
 
-    await setDoc(callRef, callPayload);
+    try {
+      await setDoc(callRef, callPayload);
+      isCallDocCreated = true;
+
+      // Flush queued ICE candidates
+      if (pendingCallerCandidates.length > 0) {
+        for (const cand of pendingCallerCandidates) {
+          addDoc(callerCandidatesCol, {
+            candidate: cand.candidate,
+            sdpMid: cand.sdpMid,
+            sdpMLineIndex: cand.sdpMLineIndex,
+            createdAt: serverTimestamp(),
+          }).catch((err) => console.error('Failed to add queued caller ICE candidate:', err));
+        }
+        pendingCallerCandidates.length = 0;
+      }
+    } catch (createErr) {
+      this.cleanup('failed');
+      throw createErr;
+    }
 
     // 6. Listen for answer and status changes on call doc
     this.activeCallDocUnsub = onSnapshot(callRef, async (snapshot) => {
@@ -271,6 +297,8 @@ class WebRtcService {
           }
         }
       }
+    }, (error) => {
+      console.warn('Caller call doc listener error:', error);
     });
 
     // 7. Listen for receiver's ICE candidates
@@ -293,6 +321,8 @@ class WebRtcService {
           }
         }
       });
+    }, (error) => {
+      console.warn('Receiver candidates listener error:', error);
     });
 
     return callId;
@@ -369,10 +399,17 @@ class WebRtcService {
     soundService.playConnectedChime();
     this.startCallDurationTimer();
 
-    // 3. Gather ICE candidates
+    // 3. Gather ICE candidates (buffer candidates until answer is saved)
     const receiverCandidatesCol = collection(db, 'calls', callId, 'receiverCandidates');
+    const pendingReceiverCandidates: RTCIceCandidate[] = [];
+    let isAnswerSaved = false;
+
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        if (!isAnswerSaved) {
+          pendingReceiverCandidates.push(event.candidate);
+          return;
+        }
         addDoc(receiverCandidatesCol, {
           candidate: event.candidate.candidate,
           sdpMid: event.candidate.sdpMid,
@@ -395,15 +432,34 @@ class WebRtcService {
     await pc.setLocalDescription(answerDescription);
 
     // 6. Update Call Document in Firestore
-    await updateDoc(callRef, {
-      answer: {
-        type: answerDescription.type,
-        sdp: answerDescription.sdp,
-      },
-      status: 'connected' as CallStatus,
-      startedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    try {
+      await updateDoc(callRef, {
+        answer: {
+          type: answerDescription.type,
+          sdp: answerDescription.sdp,
+        },
+        status: 'connected' as CallStatus,
+        startedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      isAnswerSaved = true;
+
+      // Flush queued candidates
+      if (pendingReceiverCandidates.length > 0) {
+        for (const cand of pendingReceiverCandidates) {
+          addDoc(receiverCandidatesCol, {
+            candidate: cand.candidate,
+            sdpMid: cand.sdpMid,
+            sdpMLineIndex: cand.sdpMLineIndex,
+            createdAt: serverTimestamp(),
+          }).catch((err) => console.error('Failed to add queued receiver ICE candidate:', err));
+        }
+        pendingReceiverCandidates.length = 0;
+      }
+    } catch (updateErr) {
+      this.cleanup('failed');
+      throw updateErr;
+    }
 
     // 7. Listen for caller candidates
     const callerCandidatesCol = collection(db, 'calls', callId, 'callerCandidates');
@@ -423,9 +479,9 @@ class WebRtcService {
           }
         }
       });
+    }, (error) => {
+      console.warn('Caller candidates snapshot error:', error);
     });
-
-    // 8. Listen for call termination
     this.activeCallDocUnsub = onSnapshot(callRef, (snapshot) => {
       const data = snapshot.data();
       if (!data) return;
@@ -435,6 +491,8 @@ class WebRtcService {
         soundService.playHangupTone();
         this.cleanup('user_hungup');
       }
+    }, (error) => {
+      console.warn('Active call doc snapshot error:', error);
     });
   }
 
@@ -696,6 +754,8 @@ class WebRtcService {
           onIncoming(data);
         }
       });
+    }, (error) => {
+      console.warn('Incoming calls listener error:', error);
     });
   }
 }
