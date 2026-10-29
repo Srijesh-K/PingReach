@@ -699,15 +699,9 @@ service cloud.firestore {
     match /calls/{callId} {
       function isCallParticipant() {
         return isSignedIn() && (
+          resource == null ||
           resource.data.callerId == request.auth.uid ||
           resource.data.receiverId == request.auth.uid
-        );
-      }
-
-      function isParentCallParticipant() {
-        return isSignedIn() && (
-          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
-          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid
         );
       }
 
@@ -719,16 +713,22 @@ service cloud.firestore {
         request.resource.data.receiverId != request.auth.uid &&
         request.resource.data.callType in ['audio', 'video'];
 
-      allow update: if isCallParticipant();
-      allow delete: if isCallParticipant();
+      allow update: if isSignedIn() && (
+        resource.data.callerId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.callerId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
 
       // WebRTC ICE Candidate Subcollections
       match /callerCandidates/{candidateId} {
-        allow read, write: if isParentCallParticipant();
+        allow read, write: if isSignedIn();
       }
 
       match /receiverCandidates/{candidateId} {
-        allow read, write: if isParentCallParticipant();
+        allow read, write: if isSignedIn();
       }
     }
   }

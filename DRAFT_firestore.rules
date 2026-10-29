@@ -212,6 +212,66 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+        function isValidGroupChat(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'groupId', 'name', 'description', 'avatarColor', 'createdBy', 'createdByName',
+          'memberIds', 'memberNames', 'memberHandles', 'memberColors',
+          'lastMessagePreview', 'lastMessageKind', 'lastSenderId', 'lastSenderName',
+          'unreadCounts', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'groupId', 'name', 'description', 'avatarColor', 'createdBy', 'createdByName',
+          'memberIds', 'memberNames', 'memberHandles', 'memberColors',
+          'lastMessagePreview', 'lastMessageKind', 'lastSenderId', 'lastSenderName',
+          'unreadCounts', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.groupId) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+        data.description is string && data.description.size() <= 200 &&
+        isValidHexColor(data.avatarColor) &&
+        isValidId(data.createdBy) &&
+        data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 60 &&
+        data.memberIds is list && data.memberIds.size() >= 2 && data.memberIds.size() <= 100 &&
+        data.memberNames is map &&
+        data.memberHandles is map &&
+        data.memberColors is map &&
+        data.lastMessagePreview is string && data.lastMessagePreview.size() <= 240 &&
+        data.lastMessageKind in ['none', 'text', 'data_record', 'code_snippet', 'file_packet'] &&
+        isValidId(data.lastSenderId) &&
+        data.lastSenderName is string && data.lastSenderName.size() <= 60 &&
+        data.unreadCounts is map &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMessage(data) {
+      return isSignedIn() &&
+        data.keys().hasAll([
+          'groupId', 'senderId', 'senderName', 'senderColor',
+          'kind', 'text', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'groupId', 'senderId', 'senderName', 'senderColor',
+          'kind', 'text', 'replyToText', 'replyToSender', 'dataPacket', 'reactions',
+          'deletedFor', 'isDeletedForEveryone', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.groupId) &&
+        isValidId(data.senderId) &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 60 &&
+        isValidHexColor(data.senderColor) &&
+        data.kind in ['text', 'data_record', 'code_snippet', 'file_packet'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 4000 &&
+        (!('replyToText' in data) || (data.replyToText is string && data.replyToText.size() >= 1 && data.replyToText.size() <= 240)) &&
+        (!('replyToSender' in data) || (data.replyToSender is string && data.replyToSender.size() >= 1 && data.replyToSender.size() <= 60)) &&
+        (!('dataPacket' in data) || isValidDataPacket(data.dataPacket)) &&
+        (!('reactions' in data) || data.reactions is map) &&
+        (!('deletedFor' in data) || data.deletedFor is list) &&
+        (!('isDeletedForEveryone' in data) || data.isDeletedForEveryone is bool) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     // Master Gate relational helpers
     function isParentChatPair(chatId, actorUid, partnerUid) {
       let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
@@ -226,6 +286,14 @@ service cloud.firestore {
       return chatDoc != null && (
         chatDoc.data.userOneId == actorUid ||
         chatDoc.data.userTwoId == actorUid
+      );
+    }
+
+    function isParentGroupMember(groupId, actorUid) {
+      let groupDoc = get(/databases/$(database)/documents/groups/$(groupId));
+      return groupDoc != null && (
+        actorUid in groupDoc.data.memberIds ||
+        groupDoc.data.memberIds.hasAny([actorUid])
       );
     }
 
@@ -553,8 +621,117 @@ service cloud.firestore {
           ) &&
           isParentChatMember(chatId, request.auth.uid);
 
+              allow delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Group Chats
+    // -------------------------------------------------------------------------
+    match /groups/{groupId} {
+      allow get: if isVerified() && isValidId(groupId) && (
+        resource.data.memberIds.hasAny([request.auth.uid]) ||
+        request.auth.uid in resource.data.memberIds
+      );
+      allow list: if isVerified() && (
+        resource.data.memberIds.hasAny([request.auth.uid]) ||
+        request.auth.uid in resource.data.memberIds
+      );
+
+      allow create: if isVerified() &&
+        isValidId(groupId) &&
+        isValidGroupChat(incoming()) &&
+        incoming().groupId == groupId &&
+        incoming().createdBy == request.auth.uid &&
+        (incoming().memberIds.hasAny([request.auth.uid]) || request.auth.uid in incoming().memberIds) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidGroupChat(incoming()) &&
+        isVerified() &&
+        isValidId(groupId) &&
+        (existing().memberIds.hasAny([request.auth.uid]) || request.auth.uid in existing().memberIds) &&
+        incoming().groupId == existing().groupId &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time;
+
+      allow delete: if false;
+
+      // Group Messages Subcollection
+      match /messages/{messageId} {
+        allow get: if isVerified() &&
+          isValidId(groupId) &&
+          isValidId(messageId) &&
+          isParentGroupMember(groupId, request.auth.uid);
+
+        allow list: if isVerified() &&
+          isValidId(groupId) &&
+          isParentGroupMember(groupId, request.auth.uid);
+
+        allow create: if isVerified() &&
+          isValidId(groupId) &&
+          isValidId(messageId) &&
+          isValidGroupMessage(incoming()) &&
+          incoming().groupId == groupId &&
+          incoming().senderId == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isParentGroupMember(groupId, request.auth.uid);
+
+        allow update: if isValidGroupMessage(incoming()) &&
+          isVerified() &&
+          isValidId(groupId) &&
+          isValidId(messageId) &&
+          isParentGroupMember(groupId, request.auth.uid) &&
+          incoming().groupId == existing().groupId &&
+          incoming().senderId == existing().senderId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time;
+
         allow delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Real-Time WebRTC Audio & Video Calls
+    // -------------------------------------------------------------------------
+    match /calls/{callId} {
+      function isCallParticipant() {
+        return isSignedIn() && (
+          resource == null ||
+          resource.data.callerId == request.auth.uid ||
+          resource.data.receiverId == request.auth.uid
+        );
+      }
+
+      allow get: if isCallParticipant();
+      allow list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.callerId == request.auth.uid &&
+        request.resource.data.receiverId != request.auth.uid &&
+        request.resource.data.callType in ['audio', 'video'];
+
+      allow update: if isSignedIn() && (
+        resource.data.callerId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.callerId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+
+      // WebRTC ICE Candidate Subcollections
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /receiverCandidates/{candidateId} {
+        allow read, write: if isSignedIn();
       }
     }
   }
 }
+
+
